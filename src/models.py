@@ -25,6 +25,7 @@ from .gpu import (
     get_xgboost_gpu_params,
     get_catboost_gpu_params,
     get_lightgbm_gpu_params,
+    get_torch_device,
 )
 from .validation import (
     PurgedKFold,
@@ -180,6 +181,14 @@ def create_dl_models(config=None, hyperparams=None, input_dim=10):
     mlp_p = hyperparams.get("MLP", {})
     lstm_p = hyperparams.get("LSTM", {})
 
+    # Resolve the torch device from config so CONFIG["use_gpu"]=False
+    # actually disables CUDA for DL models too. Previously the wrappers
+    # silently picked CUDA whenever it was available, regardless of
+    # config — asymmetric with the tree-model factory above.
+    use_gpu = config.get("use_gpu", False)
+    prefer_gpu = config.get("prefer_gpu", True)
+    device = get_torch_device(prefer_gpu=use_gpu and prefer_gpu)
+
     return {
         "MLP": SklearnMLPClassifier(
             input_dim=input_dim,
@@ -190,6 +199,7 @@ def create_dl_models(config=None, hyperparams=None, input_dim=10):
             max_epochs=mlp_p.get("max_epochs", 100),
             batch_size=mlp_p.get("batch_size", 32),
             random_state=rs,
+            device=device,
         ),
         "LSTM": SklearnLSTMClassifier(
             input_dim=input_dim,
@@ -201,6 +211,7 @@ def create_dl_models(config=None, hyperparams=None, input_dim=10):
             max_epochs=lstm_p.get("max_epochs", 100),
             batch_size=lstm_p.get("batch_size", 32),
             random_state=rs,
+            device=device,
         ),
     }
 
