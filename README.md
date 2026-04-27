@@ -86,6 +86,35 @@ that `src.gpu` would select and prints a per-backend OK/-- line. Stock pip
 LightGBM wheels are CPU-only; the helper detects this on first call and
 keeps LightGBM on CPU instead of failing mid-training.
 
+## Data Snapshots (reproducibility)
+
+Yahoo Finance retroactively adjusts splits and dividends, so the panel
+downloaded today may not be byte-identical to the panel that produced
+the committed CSVs in `results/`. The pipeline addresses this by
+caching OHLCV in `data/snapshots/` as Parquet files, named
+`{TICKER}_{START}_{END}.parquet`. `src.data.load_or_download` reads
+from the snapshot first and only hits yfinance when no cache is
+present.
+
+To produce or refresh a snapshot:
+
+```bash
+# Single ticker (project standard 2020-2024 window):
+python scripts/snapshot_data.py --tickers AAPL
+
+# Full panel:
+python scripts/snapshot_data.py
+
+# Force a refresh:
+python scripts/snapshot_data.py --tickers AAPL --force
+```
+
+Snapshot vintage (yfinance version, save timestamp, row count) is
+recorded in `data/snapshots/snapshot_metadata.json`. To bypass the
+cache, call `src.data.load_or_download(..., prefer_snapshot=False)`
+or set the `DATA_SNAPSHOT_DIR` environment variable to an empty
+directory.
+
 ## Reproducing the Results
 
 The full pipeline is documented in [`final_notebook/`](final_notebook/). Open the notebook in Jupyter / VS Code and run cells sequentially:
