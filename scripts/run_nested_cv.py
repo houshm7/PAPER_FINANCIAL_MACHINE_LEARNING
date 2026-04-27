@@ -91,6 +91,8 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--n-inner", type=int, default=None)
     p.add_argument("--n-trials", type=int, default=None)
     p.add_argument("--model-names", nargs="*", default=None)
+    p.add_argument("--boruta-max-iter", type=int, default=100,
+                   help="Boruta max iterations (lower for faster, less stable selection)")
     p.add_argument("--seed", type=int, default=42)
     p.add_argument("--results-dir", default=str(RESULTS_DIR))
     p.add_argument("--quiet", action="store_true")
@@ -167,6 +169,7 @@ def main() -> int:
                 n_trials=settings["n_trials"],
                 model_names=settings["model_names"],
                 label_mode=args.label_mode,
+                boruta_max_iter=args.boruta_max_iter,
                 seed=args.seed,
                 verbose=not args.quiet,
             )
@@ -221,6 +224,7 @@ def main() -> int:
         "n_inner_splits": settings["n_inner"],
         "n_trials": settings["n_trials"],
         "model_names": settings["model_names"],
+        "boruta_max_iter": args.boruta_max_iter,
         "seed": args.seed,
         "synthetic": args.synthetic,
         "smoke": args.smoke,

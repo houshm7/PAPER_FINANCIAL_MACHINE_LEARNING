@@ -1,37 +1,96 @@
 ticker,outer_fold,model,param,value
-AAPL,0,XGBoost,n_estimators,67
+AAPL,0,XGBoost,n_estimators,449
 AAPL,0,XGBoost,max_depth,4
-AAPL,0,XGBoost,learning_rate,0.1699514267940106
-AAPL,0,XGBoost,subsample,0.5466578408240506
-AAPL,0,XGBoost,colsample_bytree,0.502772314065272
-AAPL,0,XGBoost,min_child_weight,6
-AAPL,0,XGBoost,gamma,3.46224417814462
-AAPL,0,Random Forest,n_estimators,368
-AAPL,0,Random Forest,max_depth,4
+AAPL,0,XGBoost,learning_rate,0.26566780892177955
+AAPL,0,XGBoost,subsample,0.6652884169752522
+AAPL,0,XGBoost,colsample_bytree,0.7186986816443499
+AAPL,0,XGBoost,min_child_weight,10
+AAPL,0,XGBoost,gamma,4.719008206021641
+AAPL,0,Random Forest,n_estimators,114
+AAPL,0,Random Forest,max_depth,20
 AAPL,0,Random Forest,min_samples_split,16
-AAPL,0,Random Forest,min_samples_leaf,1
-AAPL,0,Random Forest,max_features,log2
-AAPL,1,XGBoost,n_estimators,287
-AAPL,1,XGBoost,max_depth,6
-AAPL,1,XGBoost,learning_rate,0.04032224535662434
-AAPL,1,XGBoost,subsample,0.8225362586741174
-AAPL,1,XGBoost,colsample_bytree,0.8862608632175994
-AAPL,1,XGBoost,min_child_weight,7
-AAPL,1,XGBoost,gamma,4.348139005950124
-AAPL,1,Random Forest,n_estimators,162
-AAPL,1,Random Forest,max_depth,13
-AAPL,1,Random Forest,min_samples_split,20
-AAPL,1,Random Forest,min_samples_leaf,10
-AAPL,1,Random Forest,max_features,
-AAPL,2,XGBoost,n_estimators,191
-AAPL,2,XGBoost,max_depth,11
-AAPL,2,XGBoost,learning_rate,0.1215087779418347
-AAPL,2,XGBoost,subsample,0.6446416979967811
-AAPL,2,XGBoost,colsample_bytree,0.5551404300131838
-AAPL,2,XGBoost,min_child_weight,2
-AAPL,2,XGBoost,gamma,3.884811535122568
-AAPL,2,Random Forest,n_estimators,82
-AAPL,2,Random Forest,max_depth,11
-AAPL,2,Random Forest,min_samples_split,20
-AAPL,2,Random Forest,min_samples_leaf,3
+AAPL,0,Random Forest,min_samples_leaf,2
+AAPL,0,Random Forest,max_features,
+AAPL,0,LightGBM,n_estimators,438
+AAPL,0,LightGBM,max_depth,7
+AAPL,0,LightGBM,learning_rate,0.010164846863585424
+AAPL,0,LightGBM,num_leaves,24
+AAPL,0,LightGBM,subsample,0.6347148277339861
+AAPL,0,LightGBM,colsample_bytree,0.7556613884176228
+AAPL,0,LightGBM,min_child_samples,16
+AAPL,1,XGBoost,n_estimators,124
+AAPL,1,XGBoost,max_depth,4
+AAPL,1,XGBoost,learning_rate,0.2611975324806981
+AAPL,1,XGBoost,subsample,0.5438768062363659
+AAPL,1,XGBoost,colsample_bytree,0.6875341652872596
+AAPL,1,XGBoost,min_child_weight,1
+AAPL,1,XGBoost,gamma,1.0462055716878127
+AAPL,1,Random Forest,n_estimators,267
+AAPL,1,Random Forest,max_depth,9
+AAPL,1,Random Forest,min_samples_split,6
+AAPL,1,Random Forest,min_samples_leaf,5
+AAPL,1,Random Forest,max_features,sqrt
+AAPL,1,LightGBM,n_estimators,242
+AAPL,1,LightGBM,max_depth,10
+AAPL,1,LightGBM,learning_rate,0.06256033160976669
+AAPL,1,LightGBM,num_leaves,48
+AAPL,1,LightGBM,subsample,0.7929393745936087
+AAPL,1,LightGBM,colsample_bytree,0.5715840182941685
+AAPL,1,LightGBM,min_child_samples,5
+AAPL,2,XGBoost,n_estimators,387
+AAPL,2,XGBoost,max_depth,9
+AAPL,2,XGBoost,learning_rate,0.05092918610940815
+AAPL,2,XGBoost,subsample,0.8234915802768448
+AAPL,2,XGBoost,colsample_bytree,0.9294708354863337
+AAPL,2,XGBoost,min_child_weight,4
+AAPL,2,XGBoost,gamma,3.3978826653109855
+AAPL,2,Random Forest,n_estimators,131
+AAPL,2,Random Forest,max_depth,16
+AAPL,2,Random Forest,min_samples_split,5
+AAPL,2,Random Forest,min_samples_leaf,10
 AAPL,2,Random Forest,max_features,log2
+AAPL,2,LightGBM,n_estimators,394
+AAPL,2,LightGBM,max_depth,4
+AAPL,2,LightGBM,learning_rate,0.07431755044973454
+AAPL,2,LightGBM,num_leaves,46
+AAPL,2,LightGBM,subsample,0.8704419375850382
+AAPL,2,LightGBM,colsample_bytree,0.6094531065859842
+AAPL,2,LightGBM,min_child_samples,9
+AAPL,3,XGBoost,n_estimators,170
+AAPL,3,XGBoost,max_depth,4
+AAPL,3,XGBoost,learning_rate,0.11011947023200942
+AAPL,3,XGBoost,subsample,0.8110251110362632
+AAPL,3,XGBoost,colsample_bytree,0.507201532550678
+AAPL,3,XGBoost,min_child_weight,2
+AAPL,3,XGBoost,gamma,2.5526576465838637
+AAPL,3,Random Forest,n_estimators,56
+AAPL,3,Random Forest,max_depth,13
+AAPL,3,Random Forest,min_samples_split,8
+AAPL,3,Random Forest,min_samples_leaf,2
+AAPL,3,Random Forest,max_features,log2
+AAPL,3,LightGBM,n_estimators,265
+AAPL,3,LightGBM,max_depth,8
+AAPL,3,LightGBM,learning_rate,0.17434659339597733
+AAPL,3,LightGBM,num_leaves,29
+AAPL,3,LightGBM,subsample,0.7438987479932015
+AAPL,3,LightGBM,colsample_bytree,0.9939647954950899
+AAPL,3,LightGBM,min_child_samples,10
+AAPL,4,XGBoost,n_estimators,339
+AAPL,4,XGBoost,max_depth,10
+AAPL,4,XGBoost,learning_rate,0.18538298761155453
+AAPL,4,XGBoost,subsample,0.5609996236021693
+AAPL,4,XGBoost,colsample_bytree,0.865083761498786
+AAPL,4,XGBoost,min_child_weight,9
+AAPL,4,XGBoost,gamma,1.9907683908459712
+AAPL,4,Random Forest,n_estimators,293
+AAPL,4,Random Forest,max_depth,15
+AAPL,4,Random Forest,min_samples_split,6
+AAPL,4,Random Forest,min_samples_leaf,3
+AAPL,4,Random Forest,max_features,log2
+AAPL,4,LightGBM,n_estimators,144
+AAPL,4,LightGBM,max_depth,9
+AAPL,4,LightGBM,learning_rate,0.11992438133942503
+AAPL,4,LightGBM,num_leaves,20
+AAPL,4,LightGBM,subsample,0.7495224586426816
+AAPL,4,LightGBM,colsample_bytree,0.7424792461971003
+AAPL,4,LightGBM,min_child_samples,24
