@@ -21,6 +21,11 @@ from catboost import CatBoostClassifier
 
 from .config import CONFIG, MODEL_NAMES, TREE_MODEL_NAMES, BASELINE_NAMES
 from .deep_learning import SklearnMLPClassifier, SklearnLSTMClassifier
+from .gpu import (
+    get_xgboost_gpu_params,
+    get_catboost_gpu_params,
+    get_lightgbm_gpu_params,
+)
 from .validation import (
     PurgedKFold,
     get_standard_kfold_splits,
@@ -52,6 +57,15 @@ def create_models(config=None, hyperparams=None):
     rs = config["random_state"]
     n_est = config["n_estimators"]
     n_jobs = config["n_jobs"]
+    use_gpu = config.get("use_gpu", False)
+
+    # Resolve GPU/CPU kwargs once. ``get_*_gpu_params`` falls back to CPU
+    # whenever a CUDA device is missing or the backend was built without
+    # GPU support. Sklearn-only models (Random Forest, GradientBoosting)
+    # have no GPU path and are always built on CPU.
+    xgb_gpu = get_xgboost_gpu_params(use_gpu=use_gpu)
+    cb_gpu = get_catboost_gpu_params(use_gpu=use_gpu)
+    lgb_gpu = get_lightgbm_gpu_params(use_gpu=use_gpu)
 
     rf_p = hyperparams.get("Random Forest", {})
     xgb_p = hyperparams.get("XGBoost", {})
@@ -83,6 +97,7 @@ def create_models(config=None, hyperparams=None):
             objective="binary:logistic",
             random_state=rs,
             n_jobs=n_jobs,
+            **xgb_gpu,
         ),
         "Gradient Boosting": GradientBoostingClassifier(
             n_estimators=gb_p.get("n_estimators", n_est),
@@ -105,6 +120,7 @@ def create_models(config=None, hyperparams=None):
             random_state=rs,
             n_jobs=n_jobs,
             verbose=-1,
+            **lgb_gpu,
         ),
         "CatBoost": CatBoostClassifier(
             iterations=cb_p.get("iterations", n_est),
@@ -116,6 +132,7 @@ def create_models(config=None, hyperparams=None):
             random_state=rs,
             verbose=False,
             thread_count=n_jobs,
+            **cb_gpu,
         ),
     }
 
