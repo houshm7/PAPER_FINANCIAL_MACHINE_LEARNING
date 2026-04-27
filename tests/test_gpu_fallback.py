@@ -182,6 +182,71 @@ def test_sklearn_gradient_boosting_has_no_gpu_kwargs(fake_cuda):
 
 
 # ---------------------------------------------------------------------------
+# tuning.py — GPU wiring (R-4 regression tests)
+# ---------------------------------------------------------------------------
+
+class _StubTrial:
+    """Minimal Optuna trial replacement: returns midpoint / first-option for
+    every suggest_* call so the objective just builds *some* valid model."""
+    def suggest_int(self, name, lo, hi):
+        return (lo + hi) // 2
+
+    def suggest_float(self, name, lo, hi, log=False):
+        return (lo + hi) / 2.0
+
+    def suggest_categorical(self, name, options):
+        return options[0]
+
+
+def _run_objectives(monkeypatch, cfg):
+    """Drive _xgb / _lgb / _catboost objectives with a stubbed _cv_score
+    that captures the constructed model and returns a constant score."""
+    import numpy as np
+    import pandas as pd
+    from src import tuning as tuning_mod
+
+    rng = np.random.default_rng(0)
+    n = 80
+    idx = pd.bdate_range("2020-01-01", periods=n)
+    X = pd.DataFrame(rng.standard_normal((n, 4)), index=idx, columns=list("abcd"))
+    y = pd.Series(rng.integers(0, 2, size=n) * 2 - 1, index=idx, dtype="int64")
+    t1 = pd.Series(idx.shift(1).fillna(idx[-1]), index=idx)
+
+    captured = []
+    monkeypatch.setattr(
+        tuning_mod, "_cv_score",
+        lambda model, *args, **kwargs: (captured.append(model) or 0.5),
+    )
+    tuning_mod._xgb_objective(_StubTrial(), X, y, t1, 3, 0.0, cfg)
+    tuning_mod._lgb_objective(_StubTrial(), X, y, t1, 3, 0.0, cfg)
+    tuning_mod._catboost_objective(_StubTrial(), X, y, t1, 3, 0.0, cfg)
+    return captured  # [xgb, lgb, catboost]
+
+
+def test_tuning_objectives_apply_gpu_kwargs(fake_cuda, monkeypatch):
+    """R-4: when use_gpu=True on a CUDA host, every Optuna objective must
+    construct GPU-configured models — same kwargs as create_models."""
+    cfg = {**CONFIG, "use_gpu": True}
+    xgb_m, lgb_m, cb_m = _run_objectives(monkeypatch, cfg)
+
+    assert getattr(xgb_m, "device", None) == "cuda"
+    assert lgb_m.get_params().get("device_type") == "gpu"
+    assert cb_m.get_param("task_type") == "GPU"
+    assert cb_m.get_param("bootstrap_type") == "Bernoulli"
+
+
+def test_tuning_objectives_respect_use_gpu_off(fake_cuda, monkeypatch):
+    """R-4: setting use_gpu=False must keep every Optuna objective on CPU
+    even when CUDA is available."""
+    cfg = {**CONFIG, "use_gpu": False}
+    xgb_m, lgb_m, cb_m = _run_objectives(monkeypatch, cfg)
+
+    assert getattr(xgb_m, "device", None) == "cpu"
+    assert lgb_m.get_params().get("device_type") == "cpu"
+    assert cb_m.get_param("task_type") == "CPU"
+
+
+# ---------------------------------------------------------------------------
 # CPU host: real environment must work without CUDA
 # ---------------------------------------------------------------------------
 
