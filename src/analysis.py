@@ -1,4 +1,20 @@
-"""High-level analysis pipelines: K-Fold comparison, sector, window, portfolio."""
+"""High-level analysis pipelines: K-Fold comparison, sector, window, portfolio.
+
+.. note::
+   **Legacy / non-final.** Every function in this module performs
+   feature selection and Optuna tuning *outside* the cross-validation
+   loop. This is the design that the audit (``docs/audit/01_repo_audit.md``,
+   issues C-2 / C-3 / C-4) flags as the dominant source of upward bias
+   in the previously reported 73% accuracy.
+
+   These functions are retained for **pedagogical / pre-fix
+   comparison** only — for example, ``run_kfold_comparison`` is still
+   useful to *demonstrate* the standard-vs-purged inflation gap.
+
+   The canonical research pipeline is
+   :func:`src.pipeline.run_nested_purged_cv`. **Do not use anything in
+   this module to produce headline numbers.**
+"""
 
 import time
 
@@ -161,7 +177,14 @@ def run_single_stock_multiwindow_analysis(ticker, windows, stock_data, config=No
 
 def run_all_stocks_purged_cv(all_tickers, windows, stock_data, config=None, n_splits=5,
                               pct_embargo=0.01, feature_cols=None, hyperparams=None):
-    """Purged K-Fold CV for every (ticker, window) combination."""
+    """Purged K-Fold CV for every (ticker, window) combination.
+
+    .. warning::
+       **Legacy / non-final.** Hyperparameters are passed in as a
+       single dict and applied panel-wide (audit C-4); feature
+       selection happens before this call (audit C-3). For headline
+       evaluation use :func:`src.pipeline.run_nested_purged_cv`.
+    """
     if config is None:
         config = CONFIG
     rows = []
@@ -358,7 +381,15 @@ def create_sector_portfolio(sector_stocks, stock_data, start_date=None, end_date
 
 def run_portfolio_analysis(stock_universe, stock_data, config=None, windows=None, n_splits=5,
                             pct_embargo=0.01, feature_cols=None, hyperparams=None):
-    """Build sector portfolios, compute stats, and evaluate prediction models."""
+    """Build sector portfolios, compute stats, and evaluate prediction models.
+
+    .. warning::
+       **Legacy / non-final.** Same caveats as
+       :func:`run_all_stocks_purged_cv`. The portfolio-level accuracy
+       comparison this produces was generated with AAPL-tuned
+       hyperparameters applied panel-wide; treat the resulting numbers
+       as exploratory.
+    """
     if config is None:
         config = CONFIG
     if windows is None:

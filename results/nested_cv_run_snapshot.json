@@ -1,0 +1,21 @@
+{
+  "timestamp_utc": "2026-04-27T21:19:57.535744+00:00",
+  "tickers_requested": [
+    "AAPL"
+  ],
+  "tickers_skipped": [],
+  "window": 1,
+  "label_mode": "raw_return",
+  "n_outer_splits": 3,
+  "n_inner_splits": 2,
+  "n_trials": 2,
+  "model_names": [
+    "XGBoost",
+    "Random Forest"
+  ],
+  "seed": 42,
+  "synthetic": true,
+  "smoke": true,
+  "use_gpu": true,
+  "prefer_gpu": true
+}
