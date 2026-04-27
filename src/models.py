@@ -21,6 +21,12 @@ from catboost import CatBoostClassifier
 
 from .config import CONFIG, MODEL_NAMES, TREE_MODEL_NAMES, BASELINE_NAMES
 from .deep_learning import SklearnMLPClassifier, SklearnLSTMClassifier
+from .gpu import (
+    get_xgboost_gpu_params,
+    get_catboost_gpu_params,
+    get_lightgbm_gpu_params,
+    get_torch_device,
+)
 from .validation import (
     PurgedKFold,
     get_standard_kfold_splits,
@@ -52,6 +58,15 @@ def create_models(config=None, hyperparams=None):
     rs = config["random_state"]
     n_est = config["n_estimators"]
     n_jobs = config["n_jobs"]
+    use_gpu = config.get("use_gpu", False)
+
+    # Resolve GPU/CPU kwargs once. ``get_*_gpu_params`` falls back to CPU
+    # whenever a CUDA device is missing or the backend was built without
+    # GPU support. Sklearn-only models (Random Forest, GradientBoosting)
+    # have no GPU path and are always built on CPU.
+    xgb_gpu = get_xgboost_gpu_params(use_gpu=use_gpu)
+    cb_gpu = get_catboost_gpu_params(use_gpu=use_gpu)
+    lgb_gpu = get_lightgbm_gpu_params(use_gpu=use_gpu)
 
     rf_p = hyperparams.get("Random Forest", {})
     xgb_p = hyperparams.get("XGBoost", {})
@@ -83,6 +98,7 @@ def create_models(config=None, hyperparams=None):
             objective="binary:logistic",
             random_state=rs,
             n_jobs=n_jobs,
+            **xgb_gpu,
         ),
         "Gradient Boosting": GradientBoostingClassifier(
             n_estimators=gb_p.get("n_estimators", n_est),
@@ -105,6 +121,7 @@ def create_models(config=None, hyperparams=None):
             random_state=rs,
             n_jobs=n_jobs,
             verbose=-1,
+            **lgb_gpu,
         ),
         "CatBoost": CatBoostClassifier(
             iterations=cb_p.get("iterations", n_est),
@@ -116,6 +133,7 @@ def create_models(config=None, hyperparams=None):
             random_state=rs,
             verbose=False,
             thread_count=n_jobs,
+            **cb_gpu,
         ),
     }
 
@@ -163,6 +181,14 @@ def create_dl_models(config=None, hyperparams=None, input_dim=10):
     mlp_p = hyperparams.get("MLP", {})
     lstm_p = hyperparams.get("LSTM", {})
 
+    # Resolve the torch device from config so CONFIG["use_gpu"]=False
+    # actually disables CUDA for DL models too. Previously the wrappers
+    # silently picked CUDA whenever it was available, regardless of
+    # config — asymmetric with the tree-model factory above.
+    use_gpu = config.get("use_gpu", False)
+    prefer_gpu = config.get("prefer_gpu", True)
+    device = get_torch_device(prefer_gpu=use_gpu and prefer_gpu)
+
     return {
         "MLP": SklearnMLPClassifier(
             input_dim=input_dim,
@@ -173,6 +199,7 @@ def create_dl_models(config=None, hyperparams=None, input_dim=10):
             max_epochs=mlp_p.get("max_epochs", 100),
             batch_size=mlp_p.get("batch_size", 32),
             random_state=rs,
+            device=device,
         ),
         "LSTM": SklearnLSTMClassifier(
             input_dim=input_dim,
@@ -184,6 +211,7 @@ def create_dl_models(config=None, hyperparams=None, input_dim=10):
             max_epochs=lstm_p.get("max_epochs", 100),
             batch_size=lstm_p.get("batch_size", 32),
             random_state=rs,
+            device=device,
         ),
     }
 

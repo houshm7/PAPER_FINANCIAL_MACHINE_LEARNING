@@ -61,6 +61,31 @@ uv sync
 source .venv/bin/activate
 ```
 
+## GPU Support (optional)
+
+The pipeline runs on CPU by default and uses CUDA opportunistically when a
+GPU is available. GPU usage is gated by the `use_gpu` flag in
+`src/config.py` (default `True`); set it to `False` to force CPU.
+
+| Model              | GPU path                                        | CPU fallback |
+|--------------------|-------------------------------------------------|--------------|
+| XGBoost            | `device="cuda"`, `tree_method="hist"`           | yes          |
+| CatBoost           | `task_type="GPU"`, `bootstrap_type="Bernoulli"` | yes          |
+| LightGBM           | `device_type="gpu"` (only if the build supports it; auto-probed) | yes |
+| MLP / LSTM (torch) | `device="cuda"`                                 | yes          |
+| Random Forest, sklearn Gradient Boosting | n/a (sklearn has no CUDA path)        | CPU only     |
+
+Run the diagnostic to see what your environment supports:
+
+```bash
+python scripts/check_gpu.py
+```
+
+The script trains a tiny model on each backend with the GPU configuration
+that `src.gpu` would select and prints a per-backend OK/-- line. Stock pip
+LightGBM wheels are CPU-only; the helper detects this on first call and
+keeps LightGBM on CPU instead of failing mid-training.
+
 ## Reproducing the Results
 
 The full pipeline is documented in [`final_notebook/`](final_notebook/). Open the notebook in Jupyter / VS Code and run cells sequentially:

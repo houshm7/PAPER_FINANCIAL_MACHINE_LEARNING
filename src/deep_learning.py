@@ -11,6 +11,8 @@ from torch import nn
 from skorch import NeuralNetClassifier
 from sklearn.base import BaseEstimator, ClassifierMixin
 
+from .gpu import get_torch_device
+
 
 # ---------------------------------------------------------------------------
 # PyTorch modules
@@ -68,7 +70,7 @@ class SklearnMLPClassifier(BaseEstimator, ClassifierMixin):
 
     def __init__(self, input_dim=10, hidden_dim=64, n_layers=2,
                  dropout=0.3, lr=1e-3, max_epochs=100,
-                 batch_size=32, random_state=42):
+                 batch_size=32, random_state=42, device=None):
         self.input_dim = input_dim
         self.hidden_dim = hidden_dim
         self.n_layers = n_layers
@@ -77,9 +79,19 @@ class SklearnMLPClassifier(BaseEstimator, ClassifierMixin):
         self.max_epochs = max_epochs
         self.batch_size = batch_size
         self.random_state = random_state
+        # device=None → auto-detect (CUDA if available, else CPU). Pass an
+        # explicit "cpu" or "cuda" to override.
+        self.device = device
+
+    def _resolve_device(self):
+        if self.device is not None:
+            return self.device
+        return get_torch_device(prefer_gpu=True)
 
     def fit(self, X, y):
         torch.manual_seed(self.random_state)
+        if torch.cuda.is_available():
+            torch.cuda.manual_seed_all(self.random_state)
         self.net_ = NeuralNetClassifier(
             module=MLPModule,
             module__input_dim=self.input_dim,
@@ -93,7 +105,7 @@ class SklearnMLPClassifier(BaseEstimator, ClassifierMixin):
             batch_size=self.batch_size,
             train_split=None,
             verbose=0,
-            device="cpu",
+            device=self._resolve_device(),
         )
         X_np = np.asarray(X, dtype=np.float32)
         y_np = np.asarray(y, dtype=np.int64)
@@ -113,7 +125,7 @@ class SklearnLSTMClassifier(BaseEstimator, ClassifierMixin):
 
     def __init__(self, input_dim=10, hidden_dim=32, n_lstm_layers=1,
                  seq_len=5, dropout=0.2, lr=1e-3, max_epochs=100,
-                 batch_size=32, random_state=42):
+                 batch_size=32, random_state=42, device=None):
         self.input_dim = input_dim
         self.hidden_dim = hidden_dim
         self.n_lstm_layers = n_lstm_layers
@@ -123,6 +135,12 @@ class SklearnLSTMClassifier(BaseEstimator, ClassifierMixin):
         self.max_epochs = max_epochs
         self.batch_size = batch_size
         self.random_state = random_state
+        self.device = device
+
+    def _resolve_device(self):
+        if self.device is not None:
+            return self.device
+        return get_torch_device(prefer_gpu=True)
 
     def _make_sequences(self, X):
         """Convert (n, features) → (n, seq_len, features) with zero-padding."""
@@ -137,6 +155,8 @@ class SklearnLSTMClassifier(BaseEstimator, ClassifierMixin):
 
     def fit(self, X, y):
         torch.manual_seed(self.random_state)
+        if torch.cuda.is_available():
+            torch.cuda.manual_seed_all(self.random_state)
         self.net_ = NeuralNetClassifier(
             module=LSTMModule,
             module__input_dim=self.input_dim,
@@ -150,7 +170,7 @@ class SklearnLSTMClassifier(BaseEstimator, ClassifierMixin):
             batch_size=self.batch_size,
             train_split=None,
             verbose=0,
-            device="cpu",
+            device=self._resolve_device(),
         )
         X_seq = self._make_sequences(X)
         y_np = np.asarray(y, dtype=np.int64)

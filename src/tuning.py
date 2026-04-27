@@ -12,6 +12,12 @@ from catboost import CatBoostClassifier
 
 from .config import CONFIG, MODEL_NAMES
 from .deep_learning import SklearnMLPClassifier, SklearnLSTMClassifier
+from .gpu import (
+    get_catboost_gpu_params,
+    get_lightgbm_gpu_params,
+    get_torch_device,
+    get_xgboost_gpu_params,
+)
 from .validation import PurgedKFold
 from .models import calculate_metrics
 
@@ -51,6 +57,7 @@ def _xgb_objective(trial, X, y, t1, n_splits, pct_embargo, config):
     model = xgb.XGBClassifier(
         **params, objective="binary:logistic",
         random_state=config["random_state"], n_jobs=config["n_jobs"],
+        **get_xgboost_gpu_params(use_gpu=config.get("use_gpu", False)),
     )
     return _cv_score(model, X, y, t1, n_splits, pct_embargo)
 
@@ -84,6 +91,7 @@ def _lgb_objective(trial, X, y, t1, n_splits, pct_embargo, config):
         **params, is_unbalance=True,
         random_state=config["random_state"],
         n_jobs=config["n_jobs"], verbose=-1,
+        **get_lightgbm_gpu_params(use_gpu=config.get("use_gpu", False)),
     )
     return _cv_score(model, X, y, t1, n_splits, pct_embargo)
 
@@ -100,6 +108,7 @@ def _catboost_objective(trial, X, y, t1, n_splits, pct_embargo, config):
         **params, auto_class_weights="Balanced",
         random_state=config["random_state"],
         verbose=False, thread_count=config["n_jobs"],
+        **get_catboost_gpu_params(use_gpu=config.get("use_gpu", False)),
     )
     return _cv_score(model, X, y, t1, n_splits, pct_embargo)
 
@@ -116,6 +125,7 @@ def _mlp_objective(trial, X, y, t1, n_splits, pct_embargo, config):
     model = SklearnMLPClassifier(
         input_dim=X.shape[1], **params,
         random_state=config["random_state"],
+        device=_resolve_torch_device(config),
     )
     return _cv_score(model, X, y, t1, n_splits, pct_embargo)
 
@@ -133,8 +143,16 @@ def _lstm_objective(trial, X, y, t1, n_splits, pct_embargo, config):
     model = SklearnLSTMClassifier(
         input_dim=X.shape[1], **params,
         random_state=config["random_state"],
+        device=_resolve_torch_device(config),
     )
     return _cv_score(model, X, y, t1, n_splits, pct_embargo)
+
+
+def _resolve_torch_device(config):
+    """Pick the torch device from config, mirroring create_dl_models."""
+    use_gpu = config.get("use_gpu", False)
+    prefer_gpu = config.get("prefer_gpu", True)
+    return get_torch_device(prefer_gpu=use_gpu and prefer_gpu)
 
 
 _OBJECTIVE_MAP = {

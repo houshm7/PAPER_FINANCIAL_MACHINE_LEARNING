@@ -56,6 +56,14 @@ CONFIG = {
     "test_size": 0.2,
     "random_state": 42,
     "n_jobs": -1,
+    # GPU usage
+    #   use_gpu      : master switch. False forces every backend to CPU even
+    #                  if a CUDA device is available.
+    #   prefer_gpu   : when True and use_gpu=True, helpers in src.gpu pick
+    #                  CUDA on detection; set False to keep CPU as default
+    #                  while still allowing per-call overrides.
+    "use_gpu": True,
+    "prefer_gpu": True,
 }
 
 # Original 6 features from Basak et al. (2019)
