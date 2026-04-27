@@ -53,7 +53,9 @@ Rania Hentati Kaffel\footnotemark[1]
 
 %% === BLOCK 2: Abstract ===
 \begin{abstract}
-\noindent How much of the directional predictability reported for machine-learning stock forecasters survives a leakage-free evaluation? We address this question by benchmarking five tree-based classifiers---Random Forest, XGBoost, Gradient Boosting, LightGBM, and CatBoost---on a panel of 25~U.S.\ equities from five sectors over 2020--2024. From raw OHLCV data we compute 14~technical indicators and their first differences; a two-stage selection procedure (correlation filter plus Boruta) retains 13~validated predictors. We demonstrate that standard K-fold cross-validation inflates accuracy by 11 to 33~percentage points relative to Purged K-Fold with embargo \citep{lopez2018advances}, the bias growing monotonically with the label horizon. Under leakage-free evaluation, the best tuned model attains 73\% directional accuracy at the one-day horizon, roughly ten points above a persistence baseline---economically meaningful, yet far below the 80--95\% figures common in the literature. Portfolio-level prediction improves accuracy by up to 13~points over individual stocks, consistent with idiosyncratic-noise cancellation. SHAP analysis identifies the Relative Strength Index as the dominant predictor across all architectures, with its monotonically increasing SHAP profile consistent with short-term momentum continuation. These results underscore that validation design is a first-order determinant of reported performance in financial machine learning and that realistic accuracy estimates are substantially more modest than conventional studies suggest.
+\noindent\textbf{Note added in revision.}\footnote{A post-submission methodological audit found that the original 73\,\% headline relied on a single-loop validation in which feature selection (Boruta on the full sample) and Optuna hyperparameter tuning shared data with the test fold. Under a leakage-safe \emph{nested} Purged K-Fold protocol—where correlation filter, Boruta selection and Optuna inner cross-validation are confined to the outer-training slice each fold—the AAPL one-day pooled out-of-fold accuracy collapses to roughly 0.51 (95\,\% CI [0.485, 0.541]; $z=-17$ vs.\ the legacy 0.73). See Section~\ref{sec:addendum} for the corrected numbers and \texttt{docs/audit/01\_repo\_audit.md}, \texttt{06\_nested\_cv\_report.md} and \texttt{07\_nested\_cv\_first\_run.md} in the companion repository.} The body text below describes the originally submitted analysis. The corrected results supersede the headline accuracy figures.\medskip
+
+\noindent How much of the directional predictability reported for machine-learning stock forecasters survives a leakage-free evaluation? We address this question by benchmarking five tree-based classifiers---Random Forest, XGBoost, Gradient Boosting, LightGBM, and CatBoost---on a panel of 25~U.S.\ equities from five sectors over 2020--2024. From raw OHLCV data we compute 14~technical indicators and their first differences; a two-stage selection procedure (correlation filter plus Boruta) retains 13~validated predictors. We demonstrate that standard K-fold cross-validation inflates accuracy by 11 to 33~percentage points relative to Purged K-Fold with embargo \citep{lopez2018advances}, the bias growing monotonically with the label horizon. Under leakage-free evaluation, the best tuned model attains 73\% directional accuracy at the one-day horizon, roughly ten points above a persistence baseline---economically meaningful, yet far below the 80--95\% figures common in the literature.\footnote{This 73\,\% number is superseded by the leakage-safe replication in Section~\ref{sec:addendum}.} Portfolio-level prediction improves accuracy by up to 13~points over individual stocks, consistent with idiosyncratic-noise cancellation. SHAP analysis identifies the Relative Strength Index as the dominant predictor across all architectures, with its monotonically increasing SHAP profile consistent with short-term momentum continuation. These results underscore that validation design is a first-order determinant of reported performance in financial machine learning and that realistic accuracy estimates are substantially more modest than conventional studies suggest.
 \end{abstract}
 
 \vspace{0.3cm}
@@ -778,13 +780,253 @@ This paper benchmarks five tree-based classifiers on a panel of 25~U.S.\ equitie
 
 \noindent \textit{Validation matters more than model choice.} Standard K-fold cross-validation inflates reported accuracy by 11 to 33~percentage points relative to the Purged K-Fold procedure of \citet{lopez2018advances}, with the bias growing monotonically in the label horizon. At 15~days, the standard estimate suggests 85\% accuracy while the leakage-free figure is 52\%---indistinguishable from chance. This result implies that a material share of the predictive power claimed in prior work may be an artifact of overlapping-label leakage, and it reinforces the call by \citet{bailey2017dangers} for more disciplined backtesting standards in financial machine learning. \\
 
-\noindent \textit{Realistic accuracy is moderate but meaningful.} Under Purged K-Fold with Bayesian hyperparameter optimization, the best model attains 73\% directional accuracy at the one-day horizon---roughly ten points above persistence and twenty above chance, but far below the 80--95\% figures common in studies with less rigorous validation. Accuracy decays sharply with horizon (to $\approx$52\% at 15~days), consistent with the rapid decay of short-term momentum documented in the asset-pricing literature \citep{jegadeesh1993returns}. \\
+\noindent \textit{Realistic accuracy is moderate but meaningful.}\footnote{Both quantitative claims in this subsection are revised in Section~\ref{sec:addendum}. Under leakage-safe nested Purged K-Fold, the AAPL one-day pooled out-of-fold accuracy is approximately 0.51 (not 0.73), and the multi-horizon curve is approximately flat at 0.51--0.56 from $h=1$ to $h=15$ rather than monotonically decaying from 0.73 to 0.52. The leakage-safe $h=15$ figure (0.560) is in fact statistically indistinguishable from---and slightly above---the legacy $h=15$ headline (0.532), consistent with the legacy curve's shape having been driven by an inflated $h=1$ rather than by genuine short-horizon momentum.} Under Purged K-Fold with Bayesian hyperparameter optimization, the best model attains 73\% directional accuracy at the one-day horizon---roughly ten points above persistence and twenty above chance, but far below the 80--95\% figures common in studies with less rigorous validation. Accuracy decays sharply with horizon (to $\approx$52\% at 15~days), consistent with the rapid decay of short-term momentum documented in the asset-pricing literature \citep{jegadeesh1993returns}. \\
 
 \noindent \textit{Interpretability grounds the predictions economically.} SHAP analysis reveals that the RSI is the dominant predictor across all architectures, with a monotonically increasing influence profile consistent with momentum continuation rather than mean reversion. Portfolio-level aggregation improves accuracy by 7--13~pp over individual stocks, reflecting idiosyncratic-noise cancellation and suggesting that directional models are best deployed at the sector or index level. \\
 
 \noindent \textbf{Limitations.} Several caveats temper these findings. (i)~The feature set is restricted to price- and volume-based technical indicators; sentiment, macroeconomic, and options-implied data are excluded. (ii)~Transaction costs, slippage, and market impact are not modeled, so directional accuracy does not map directly to net trading profitability---a distinction emphasized by \citet{lopez2018advances}. (iii)~The sample period 2020--2024 spans unusual regimes (pandemic crash, zero-rate environment, AI-driven rally) that may limit out-of-sample generalizability. (iv)~Hyperparameters are tuned on a single representative stock (AAPL) and applied uniformly across the panel; per-stock optimization could improve results at the cost of additional overfitting risk. (v)~Wavelet denoising parameters were set by convention, not optimized; alternative filters may yield different label constructions and, potentially, different accuracy figures. \\
 
 \noindent \textbf{Future directions.} Walk-forward backtesting with realistic transaction costs would clarify economic significance. Regime-detection mechanisms that adapt model parameters across bull and bear markets could improve robustness. Combining technical indicators with textual or macroeconomic features may recover the medium-horizon predictability that our current feature set fails to capture. Finally, the interaction between label smoothing intensity and downstream prediction accuracy warrants systematic investigation.
+
+\newpage
+
+%% =====================================================================
+%% Methodological Addendum (post-submission revision)
+%% =====================================================================
+\section{Addendum: Leakage-Safe Replication under Nested Purged K-Fold}
+\label{sec:addendum}
+
+A post-submission audit (\texttt{docs/audit/01\_repo\_audit.md}) of
+the analysis pipeline supporting Sections~4.2--4.5 identified three
+information-leakage paths that the body of this paper does not
+account for. None of them invalidates the methodological argument
+in Section~2.3---the case for purged validation over standard
+K-fold---but together they materially inflate the level of the
+reported accuracy. This addendum documents the corrected analysis
+and supersedes the headline accuracy figures in the abstract,
+Tables~4--7, and the second paragraph of the Conclusion.
+
+\subsection{The three leakage paths}
+
+\paragraph{(L1) Single-loop hyperparameter tuning.} The original
+pipeline ran Optuna with Purged K-Fold accuracy as the objective on
+the \emph{entire} sample, then re-evaluated the best
+hyperparameters on the same five Purged K-Folds and reported that
+re-evaluation as the headline. Optuna's $50$-trial maximum over
+identical folds is upward-biased relative to a true held-out
+estimate. The fix is a nested design: an outer Purged K-Fold is the
+evaluator, an inner Purged K-Fold restricted to each outer-training
+slice is the tuner.
+
+\paragraph{(L2) Feature selection on the full sample.} The
+correlation filter and Boruta confirmation of Section~3.3 were
+performed once on the full panel using AAPL labels; the resulting
+13-feature set was then used in every subsequent Purged-K-Fold
+evaluation. Because Boruta uses the labels, exposing it to the full
+sample lets the test fold influence the chosen feature subset---a
+violation of the train/test separation the rest of the pipeline
+otherwise enforces. The fix is to re-run the entire selection
+pipeline (correlation filter and Boruta) on the outer-training
+slice of each outer fold, never on the outer-test rows.
+
+\paragraph{(L3) Cross-asset hyperparameter transfer.} The
+hyperparameters reported in Table~6 were tuned on AAPL and applied
+panel-wide to all 25~stocks and all five sector portfolios. The
+single-asset accuracy claims (Tables~4--5, AAPL) are not affected
+by this; the panel and sector results in Sections~4.6--4.7 are.
+The fix is to tune per asset within each outer fold; the addendum
+below addresses the AAPL single-asset case only and leaves the
+panel-wide replication for follow-up work.
+
+\subsection{Replicated pipeline}
+
+The leakage-safe pipeline is implemented in
+\texttt{src/pipeline.py} (\texttt{run\_nested\_purged\_cv}) and is
+publicly auditable in the companion repository. Its contract:
+for every outer fold $k$, every operation that consumes labels
+(\texttt{correlation\_filter}, \texttt{boruta\_selection},
+\texttt{tune\_model}) sees only indices in $\text{train}_k = D
+\setminus (\text{test}_k \cup \text{embargo}_k \cup \text{purge}_k)$.
+The outer test fold is read once, by \texttt{predict()}, after the
+final model has been fitted on outer-train. Out-of-fold (OOF)
+predictions are concatenated across outer folds; the headline
+metric is the pooled OOF accuracy.
+
+The contract is verified by four unit tests in
+\texttt{tests/test\_nested\_pipeline.py}: feature selection scope,
+Optuna tuning scope, $X/y/t_1$ alignment, and outer-test
+untouched. All tests pass; details in
+\texttt{docs/audit/06\_nested\_cv\_report.md}.
+
+\subsection{Corrected single-asset results (AAPL, $h=1$)}
+
+We rerun the pipeline on AAPL over the same 2020--2024 sample
+period with raw-return labels (the wavelet smoothing of
+Section~3.2 is non-causal and is dropped in the leakage-safe
+default; see~\texttt{docs/audit/03\_label\_leakage\_report.md}).
+Settings: $5$ outer Purged K-Folds, $2$ inner folds, $5$ Optuna
+trials per (outer fold, model), Boruta \texttt{max\_iter}=20,
+seed~42, three tree backends (XGBoost, Random~Forest, LightGBM)
+out of the original five. Reduced trial budgets are used because
+the full sweep is multi-hour per asset. Even with the
+reduction, the headline gap is statistically unmistakable.
+
+\begin{table}[H]
+\centering
+\caption{AAPL, $h=1$: legacy headline vs.\ leakage-safe pooled
+out-of-fold accuracy. $n=1{,}229$ OOF predictions across five
+outer folds. 95\,\% Wilson confidence intervals.}
+\label{tab:addendum_aapl_h1}
+\scriptsize
+\begin{tabular}{lcccc}
+\toprule
+\textbf{Model} & \textbf{Legacy (Table~5)} & \textbf{Pooled OOF (nested CV)} & \textbf{95\,\% CI} & \textbf{$z$ vs.\ legacy 0.73} \\
+\midrule
+Random Forest & 73.0\,\% & \textbf{51.3\,\%} & [48.5\,\%, 54.1\,\%] & $-17.10$ \\
+XGBoost       & 72.3\,\% & 48.8\,\%          & [46.0\,\%, 51.6\,\%] & $-19.09$ \\
+LightGBM      & 72.6\,\% & 48.4\,\%          & [45.6\,\%, 51.2\,\%] & $-19.41$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\noindent The $z$-test rejects the legacy 0.73 headline at every
+conventional significance level for all three models
+($p<10^{-10}$ in each case). The 95\,\% CIs do not overlap 0.73
+by a margin of approximately 20~percentage points. AUC values
+under nested CV cluster around 0.50, indicating that, once
+selection and tuning are quarantined inside the outer-training
+slice, the rank ordering of predictions carries essentially no
+information about future direction at $h=1$.
+
+\subsection{Multi-horizon comparison}
+
+The window-effect of Section~4.5 (Table~7) reports a smooth
+decline from $\approx 73$\,\% at $h=1$ to $\approx 52$\,\% at
+$h=15$. Under nested CV, the entire curve sits near the chance
+level: the ``decline'' largely vanishes because there is no
+meaningful $h=1$ peak from which to decline.
+
+\begin{table}[H]
+\centering
+\caption{AAPL window-effect under nested Purged K-Fold (best
+single-model pooled OOF accuracy). Settings: 5~outer~$\times$
+2~inner folds, 5~Optuna trials, Boruta \texttt{max\_iter}=20,
+seed~42, raw-return labels. Legacy column reports the maximum
+across the five tree-based classifiers in Table~7 of the body.}
+\label{tab:addendum_aapl_window}
+\scriptsize
+\begin{tabular}{lccccc}
+\toprule
+\textbf{Horizon} & \textbf{Legacy max.} & \textbf{Nested CV best} & \textbf{Best model} & \textbf{AUC} & \textbf{$z$ vs.\ legacy} \\
+\midrule
+$h=1$  & 73.0\,\% & 51.3\,\% & Random Forest & 0.502 & $-17.10^{\ast\ast\ast}$ \\
+$h=5$  & 63.8\,\% & 51.6\,\% & Random Forest & 0.483 & $-8.89^{\ast\ast\ast}$ \\
+$h=15$ & 53.2\,\% & 56.0\,\% & XGBoost       & 0.525 & $+1.99^{\ast}$ \\
+\bottomrule
+\multicolumn{6}{l}{\scriptsize $^{\ast\ast\ast}$ $p<10^{-10}$;
+$^{\ast}$ $p \approx 0.046$ (two-sided).}
+\end{tabular}
+\end{table}
+
+\noindent The legacy paper's narrative---that accuracy decays
+\emph{monotonically} from 73\,\% at $h=1$ to 52\,\% at
+$h=15$---collapses under nested CV. The $h=1$ and $h=5$ legacy
+headlines are rejected at $p<10^{-10}$. The $h=15$ legacy 53.2\,\%
+is \emph{not} rejected; if anything, the leakage-safe estimate is
+slightly higher (56.0\,\%, $z=+1.99$, $p\approx 0.05$).
+
+\noindent The reading of this pattern is that the apparent decay
+reported in Section~4.5 was driven entirely by an artificially
+inflated $h=1$ number, not by genuine short-horizon momentum.
+Once leakage is removed, the accuracy curve is flat at near
+50\,\% across horizons, and the $h=15$ legacy figure---accidentally
+the most honest of the three---was already close to the
+leakage-safe truth.
+
+\noindent The 56.0\,\% at $h=15$ should be read carefully: with an
+AUC of only 0.525 (versus 0.50--0.51 for $h=1$ and $h=5$), and
+given that the 15-day cumulative return distribution is more
+right-skewed in this 2020--2024 sample than the 1-day distribution
+(longer holding periods inherit the upward equity drift), the
+elevated accuracy partly reflects the model successfully exploiting
+class imbalance via majority-class prediction rather than a
+genuine directional signal. The high $f1=0.685$ versus a balanced
+$f1$ near 0.50 is consistent with this reading. Confirming this
+requires a balanced-accuracy or Brier-score follow-up, deferred to
+the metric-upgrade addendum tied to audit issue C-22.
+
+\subsection{Hyperparameter drift across outer folds}
+
+Table~6 of the body reports a single ``tuned hyperparameter''
+value per model per architectural slot. Under nested CV, those
+``best'' values are not stable across outer folds drawn from the
+same asset and same period:
+
+\begin{table}[H]
+\centering
+\caption{Per-fold Optuna best values for AAPL, $h=1$, leakage-safe
+nested CV. Source: \texttt{results/nested\_cv\_best\_params.csv}.}
+\label{tab:addendum_drift}
+\scriptsize
+\begin{tabular}{lccccc}
+\toprule
+\textbf{Param.} & \textbf{Fold 0} & \textbf{Fold 1} & \textbf{Fold 2} & \textbf{Fold 3} & \textbf{Fold 4} \\
+\midrule
+XGBoost \texttt{learning\_rate} & 0.266 & 0.261 & 0.051 & 0.110 & 0.185 \\
+RF \texttt{n\_estimators}       & 114   & 267   & 131   & 56    & 293   \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\noindent A factor-of-five swing in either parameter across
+statistically equivalent outer-training subsamples is consistent
+with hyperparameters being over-fit to the particular split rather
+than reflecting an asset-level optimum. Reported point estimates
+in Table~6 of the body should therefore be interpreted as the
+result of one such draw, not as ``the'' tuned hyperparameters.
+
+\subsection{What survives}
+
+The core methodological contribution of the paper---that
+overlapping-label leakage materially inflates standard K-fold
+accuracy and that purged validation is the appropriate
+fix---survives in full. Section~4.1 (Table~3) demonstrates the
+gap between standard and Purged K-Fold using the original
+pipeline; that demonstration is internally valid because both
+schemes are evaluated under the same selection / tuning protocol.
+
+\noindent What does \emph{not} survive: (i)~the level of the
+$h=1$ accuracy, which drops from 73\,\% to 51\,\% with AUC
+indistinguishable from 0.50; (ii)~the level of the $h=5$
+accuracy, which drops from 64\,\% to 52\,\%; and
+(iii)~the qualitative shape of the window-effect curve. The
+legacy curve was monotonically decreasing from 73\,\% to 52\,\%
+across $h \in \{1,2,5,10,15\}$; the leakage-safe curve is flat at
+roughly 51--56\,\%. The economic interpretation in Section~4.5,
+which read the legacy curve as evidence of ``rapid decay of
+short-term momentum,'' has no support once the $h=1$ peak
+disappears: there is no peak from which to decay. The 56\,\%
+figure at $h=15$, with AUC of only 0.525 and $f1=0.685$, is
+consistent with class-imbalance exploitation (the 15-day return
+is positive in the majority of windows in this 2020--2024
+sample) rather than directional skill.
+
+\subsection{Status of the multi-horizon, panel-wide replication}
+
+This addendum reports only the AAPL single-asset case at three
+horizons. The full $25 \times 5$ panel-wide nested-CV sweep with
+$50$ Optuna trials per (outer fold, model) and Boruta
+\texttt{max\_iter}=100 is multi-hour per asset and is gated on
+compute. The directional result---that the headline 73\,\% is a
+leakage artifact---is already determined; only the precise
+panel-mean and the cross-sector decomposition of Tables~8--10
+require the full sweep before they can be revised.
+
+The corresponding open audit items
+(\texttt{04\_post\_fix\_verification.md}, R-2: data snapshot
+C-13; economic backtest C-19; statistical inference C-22) remain
+to be addressed in further revisions and do not affect the
+addendum's quantitative claims.
 
 \newpage
 
