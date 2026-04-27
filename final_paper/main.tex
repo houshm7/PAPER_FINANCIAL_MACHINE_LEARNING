@@ -1,0 +1,794 @@
+\documentclass[12pt]{article}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage[english]{babel}
+\usepackage{setspace}
+\usepackage{geometry}
+\usepackage{amsmath,amssymb,amsthm,mathtools}
+\usepackage{bm}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{hyperref}
+\usepackage{natbib}
+\usepackage{float}
+\usepackage{caption}
+\usepackage{subcaption}
+%% === BLOCK 1: Preamble additions ===
+\usepackage{tikz}
+\usetikzlibrary{shapes.geometric, arrows.meta, positioning, fit, calc, backgrounds}
+\usepackage{multirow}
+\usepackage{adjustbox}
+\usepackage{enumitem}
+
+
+\geometry{margin=0.84in}
+\setstretch{1.15}
+\hypersetup{
+    colorlinks=true,
+    linkcolor=blue,
+    citecolor=blue,
+    urlcolor=blue
+}
+
+\title{Forecasting Stock Market Direction with Tree-Based Classifiers:\\
+Evidence from Purged Cross-Validation and SHAP Interpretability}
+
+\author{
+Houssem Majed\thanks{Universit\'e Paris 1 Panth\'eon--Sorbonne, \'Ecole d'\'Economie de la Sorbonne. Corresponding author: \texttt{houssem.majed@etu.univ-paris1.fr}.}
+\and
+Aymen El Ghoul\footnotemark[1]
+\and
+Hanaa Talbi\footnotemark[1]
+\and
+Rania Hentati Kaffel\footnotemark[1]
+}
+
+\date{\today}
+
+\begin{document}
+
+\maketitle
+
+%% === BLOCK 2: Abstract ===
+\begin{abstract}
+\noindent How much of the directional predictability reported for machine-learning stock forecasters survives a leakage-free evaluation? We address this question by benchmarking five tree-based classifiers---Random Forest, XGBoost, Gradient Boosting, LightGBM, and CatBoost---on a panel of 25~U.S.\ equities from five sectors over 2020--2024. From raw OHLCV data we compute 14~technical indicators and their first differences; a two-stage selection procedure (correlation filter plus Boruta) retains 13~validated predictors. We demonstrate that standard K-fold cross-validation inflates accuracy by 11 to 33~percentage points relative to Purged K-Fold with embargo \citep{lopez2018advances}, the bias growing monotonically with the label horizon. Under leakage-free evaluation, the best tuned model attains 73\% directional accuracy at the one-day horizon, roughly ten points above a persistence baseline---economically meaningful, yet far below the 80--95\% figures common in the literature. Portfolio-level prediction improves accuracy by up to 13~points over individual stocks, consistent with idiosyncratic-noise cancellation. SHAP analysis identifies the Relative Strength Index as the dominant predictor across all architectures, with its monotonically increasing SHAP profile consistent with short-term momentum continuation. These results underscore that validation design is a first-order determinant of reported performance in financial machine learning and that realistic accuracy estimates are substantially more modest than conventional studies suggest.
+\end{abstract}
+
+\vspace{0.3cm}
+
+\noindent \textbf{Keywords:} Stock market prediction, tree-based classifiers, Purged K-Fold Cross-Validation, information leakage, SHAP, technical indicators, ensemble methods.
+
+\vspace{0.1cm}
+
+\noindent \textbf{JEL Classification:} G14, G17, C45, C53.
+
+\vspace{0.4cm}
+
+\section{Introduction}
+
+The question of whether past price information can predict future stock returns has shaped financial economics since \citet{fama1970efficient} articulated the Efficient Market Hypothesis. Under its weak form, historical prices should carry no exploitable signal, yet subsequent work---notably \citet{lo1988stock}---documents persistent short-term return autocorrelation that is difficult to reconcile with a pure random walk. This tension has sustained a large empirical literature exploring both the existence and the magnitude of return predictability. \\
+
+\noindent Classical approaches cast the problem in a linear time-series framework (ARIMA, GARCH), which provides statistical clarity at the expense of functional-form rigidity. Machine learning relaxes these assumptions: Support Vector Machines \citep{kim2003financial,huang2005forecasting}, ensemble trees \citep{patel2015predicting,krauss2017deep}, and deep architectures \citep{fischer2018deep,sirignano2019universal} can capture nonlinearities and interaction effects that linear models miss. Among these, tree-based ensembles occupy a practical middle ground---they achieve competitive accuracy with moderate computational cost and retain substantial interpretability through feature-importance measures and, more recently, through Shapley-value decompositions \citep{lundberg2017unified}. \\
+
+\noindent A less appreciated but arguably more consequential issue is \emph{how} predictive accuracy is measured. Financial labels constructed over multi-day horizons create overlapping information sets, so that a random train--test partition inevitably leaks future information into the training fold. \citet{lopez2018advances} shows that this leakage can inflate reported accuracy by tens of percentage points---a magnitude large enough to transform a no-skill forecast into an apparently profitable one. Despite this warning, much of the applied literature continues to rely on standard K-fold or single-split evaluation without purging or embargo, casting doubt on the headline numbers reported in many studies. \\
+
+\noindent This paper makes three contributions to the literature on directional forecasting with machine learning. First, we benchmark five modern tree-based classifiers---Random Forest \citep{breiman2001random}, XGBoost \citep{chen2016xgboost}, Gradient Boosting \citep{friedman2001greedy}, LightGBM \citep{ke2017lightgbm}, and CatBoost \citep{prokhorenkova2018catboost}---on a diversified panel of 25~U.S.\ equities from five sectors over 2020--2024, a period covering markedly different volatility and trend regimes. Second, we provide a controlled comparison between standard K-fold and Purged K-Fold cross-validation \citep{lopez2018advances}, quantifying the horizon-dependent leakage bias and showing that it increases monotonically from 11~pp at the one-day horizon to 33~pp at fifteen days. Third, we apply SHAP-based interpretability \citep{lundberg2017unified} to all five architectures, revealing that the Relative Strength Index is the dominant predictor and that its influence profile is consistent with short-term momentum continuation---an economically grounded signal rather than a statistical artifact. \\
+
+\noindent The remainder of the paper is organized as follows. Section~2 presents the methodology. Section~3 describes the data and feature construction pipeline. Section~4 reports empirical results. Section~5 concludes.
+
+
+
+\section{Methodology}
+
+Our framework has three components: (i)~construction of predictive features from lagged price data, (ii)~definition of a directional target variable using a noise-reduced price series, and (iii)~out-of-sample evaluation via Purged K-Fold cross-validation, which eliminates the information leakage inherent in standard random-split schemes. \\
+
+\noindent Let \(P_t\) denote the closing price at date \(t\), for \(t=1,\dots,T\), and define log-returns as
+\begin{equation}
+r_t = \ln\left(\frac{P_t}{P_{t-1}}\right).
+\end{equation}
+
+\noindent The objective is to predict the direction of the cumulative return over a horizon \(h \in \{1,2,5,10,15\}\) trading days. The problem is thus a binary classification task: estimate $\mathbb{P}(y_t=1\mid X_t)$, where $y_t$ indicates an upward move and $X_t$ is the information set available at~$t$. Directional forecasting is preferred to point prediction because it maps directly to market-timing decisions and is more robust to extreme observations \citep{fischer2018deep,gu2020empirical}.
+
+\subsection{Feature construction and preprocessing}
+
+The explanatory variables are constructed from the historical price series and consist of technical indicators designed to capture trend persistence, momentum effects, and potential reversal patterns. Let
+$X_t = (x_{1t},x_{2t},\dots,x_{pt})$
+denote the vector of predictors available at time \(t\). \\
+
+\noindent Among the predictors considered, trend indicators are represented by moving averages:
+\begin{equation}
+MA_t^{(k)} = \frac{1}{k}\sum_{i=0}^{k-1} P_{t-i},
+\end{equation}
+where \(k\) denotes the window length. Momentum indicators are defined as
+\begin{equation}
+MOM_t^{(k)} = P_t - P_{t-k}.
+\end{equation}
+We also consider oscillators such as the Relative Strength Index (RSI), which is based on the ratio between recent average gains and losses:
+\begin{equation}
+RSI_t = 100 - \frac{100}{1 + RS_t},
+\end{equation}
+where
+\begin{equation}
+RS_t = \frac{\text{Average Gain}_t}{\text{Average Loss}_t}.
+\end{equation}
+
+\noindent These variables are nonlinear transformations of lagged price information designed to approximate the unknown mapping from observable market dynamics to future returns. Their empirical relevance is supported by \citet{lo2000foundations}, who document statistically significant predictive content in technical patterns, and by \citet{gu2020empirical}, who show that technical features combined with nonlinear models yield economically meaningful gains in forecast accuracy. Tree-based ensembles are particularly well suited to this feature class because they can exploit threshold effects and interactions without parametric restrictions. \\
+
+\noindent \textbf{Label smoothing.} Financial closing prices contain substantial high-frequency noise from microstructure effects, transient liquidity shocks, and bid--ask bounce. Because our target variable is the \emph{sign} of the forward price change, even a small perturbation near zero can flip a label, injecting classification noise that destabilizes both training and evaluation. \citet{lopez2018advances} identifies noisy labels as a primary source of instability in financial machine learning. \\
+
+\noindent To mitigate this, we apply a smoothing operator $S(\cdot)$ to the closing price series \emph{used exclusively for label construction}---all technical indicators are computed on raw, unsmoothed OHLCV data and therefore retain full sensitivity to market conditions. Formally, let
+\begin{equation}
+\tilde{P}_t = S(P_t)
+\end{equation}
+denote the denoised price. We implement $S(\cdot)$ as a Discrete Wavelet Transform (DWT) filter using a Daubechies-4 mother wavelet \citep{donoho1994ideal}. The procedure decomposes $P_t$ into approximation and detail coefficients at each resolution level, applies soft thresholding to the detail coefficients to attenuate noise, and reconstructs the denoised series. Compared with exponential smoothing---which \citet{basak2019predicting} apply to prices \emph{before} computing indicators, thereby double-smoothing---wavelet denoising offers two advantages: (i)~it preserves sharp trend transitions (important for capturing regime changes around events such as the March~2020 crash), and (ii)~it introduces less systematic lag because the filter adapts locally in both time and frequency. In our data, wavelet denoising achieves approximately 67.5\% noise reduction versus 78.9\% for exponential smoothing; the lower figure reflects the preservation of economically relevant high-frequency content rather than inferior denoising. \\
+
+\noindent The choice of the Daubechies-4 wavelet and the automatic decomposition-level selection (set by PyWavelets to $\lfloor \log_2(T) \rfloor$) follow standard practice in signal processing \citep{donoho1994ideal}. No alternative wavelet families were tested, and the decomposition level was not tuned to prediction accuracy. This design decision limits the risk of in-sample over-optimization of the denoising step, though it leaves open the possibility that a different filter could yield marginally better or worse results---a limitation we acknowledge. \\
+
+\noindent It is important to emphasize that smoothing operates solely on the dependent variable (label construction), not on the feature space. This asymmetric treatment avoids the double-smoothing problem noted above and ensures that the predictors retain the full information content of the raw market data.
+
+\subsection{Target variable, model estimation, and feature selection}
+
+The target variable is the direction of the forward price change over horizon~$h$:
+\begin{equation}
+y_t =
+\begin{cases}
+1 & \text{if } \tilde{P}_{t+h} > \tilde{P}_t, \\
+0 & \text{otherwise,}
+\end{cases}
+\end{equation}
+where $\tilde{P}_t$ is the wavelet-denoised closing price. The estimation objective is the conditional probability $\mathbb{P}(y_t = 1 \mid X_t)$, with $X_t$ restricted to information available at date~$t$. \\
+
+\noindent With 28~candidate predictors (14~indicators plus their first differences) and roughly 1{,}250~observations per stock, overfitting is a material concern. We therefore apply a two-stage feature selection procedure---correlation filtering followed by the Boruta algorithm \citep{kursa2010feature}---described in detail in Section~\ref{sec:feat_sel}. The surviving 13~features are used in all subsequent estimation. \\
+
+\noindent Prediction models are tree-based ensembles of the general form
+\begin{equation}
+f(X) = \sum_{m=1}^{M} \gamma_m \, h_m(X),
+\end{equation}
+where $h_m(\cdot)$ are decision trees and $\gamma_m$ their weights. We consider five variants: Random Forest \citep{breiman2001random}, Gradient Boosting \citep{friedman2001greedy}, XGBoost \citep{chen2016xgboost}, LightGBM \citep{ke2017lightgbm}, and CatBoost \citep{prokhorenkova2018catboost}. These models share the ability to capture nonlinear threshold effects and predictor interactions without parametric assumptions, but differ in their regularization strategies, splitting heuristics, and handling of class imbalance---differences that may matter in noisy financial data.
+
+\subsection{Cross-validation, overlapping labels, and information leakage}
+
+Standard K-fold cross-validation assumes i.i.d.\ observations. In financial time series, this assumption fails for two reasons: serial dependence in features and, more critically, the fact that labels constructed over a forward horizon~$h$ depend on an \emph{interval} of future prices rather than a single date. When the label intervals of a training observation and a test observation overlap, the two share common future realizations and the train--test split is no longer informationally clean. \\
+
+\noindent Let the sample be partitioned into $K$ folds, $D = \bigcup_{k=1}^{K} D_k$. To formalize the leakage mechanism, consider for simplicity the unsmoothed label
+\begin{equation}
+y_t = \mathbf{1}\{P_{t+h} > P_t\}.
+\end{equation}
+\noindent More generally, the same argument applies when labels are defined using the smoothed series \(\tilde{P}_t\). The key point is that \(y_t\) depends on information extending beyond time \(t\). Let
+\begin{equation}
+\mathcal{I}_t^{(h)} = \sigma(P_t,P_{t+1},\dots,P_{t+h})
+\end{equation}
+\noindent denote the information set used to construct the label at time \(t\). Then \(y_t\) is measurable with respect to \(\mathcal{I}_t^{(h)}\). \\
+
+\noindent Now consider two observations indexed by \(t\) and \(s\), with \(t < s\). Their labels depend respectively on
+\begin{equation}
+\mathcal{I}_t^{(h)} = \sigma(P_t,\dots,P_{t+h}),
+\qquad
+\mathcal{I}_s^{(h)} = \sigma(P_s,\dots,P_{s+h}).
+\end{equation}
+If \(s \leq t+h\), then the intervals \([t,t+h]\) and \([s,s+h]\) overlap, and therefore
+\begin{equation}
+\mathcal{I}_t^{(h)} \cap \mathcal{I}_s^{(h)} \neq \emptyset.
+\end{equation}
+This implies that \(y_t\) and \(y_s\) are constructed using some common future realizations of the price process. Hence, they are mechanically dependent even when the underlying one-period returns exhibit weak dependence. \\
+
+\noindent This overlap can be made explicit by defining labels from cumulative returns:
+\begin{equation}
+y_t = \mathbf{1}\{R_{t,t+h}>0\},
+\qquad
+R_{t,t+h} = \sum_{j=1}^{h} r_{t+j}.
+\end{equation}
+Similarly,
+\begin{equation}
+y_s = \mathbf{1}\{R_{s,s+h}>0\},
+\qquad
+R_{s,s+h} = \sum_{j=1}^{h} r_{s+j}.
+\end{equation}
+If \(s=t+1\), then
+\begin{equation}
+R_{t,t+h} = r_{t+1}+r_{t+2}+\cdots+r_{t+h},
+\end{equation}
+and
+\begin{equation}
+R_{t+1,t+1+h} = r_{t+2}+r_{t+3}+\cdots+r_{t+h+1}.
+\end{equation}
+These two cumulative returns share the common terms
+\begin{equation}
+r_{t+2},r_{t+3},\dots,r_{t+h}.
+\end{equation}
+Therefore, even under the simplifying assumption that one-period returns are serially uncorrelated with constant variance \(\sigma^2\), we obtain
+\begin{equation}
+\mathrm{Cov}(R_{t,t+h},R_{t+1,t+1+h}) = \sum_{j=2}^{h}\mathrm{Var}(r_{t+j}) = (h-1)\sigma^2.
+\end{equation}
+More generally, for any two starting dates \(t\) and \(s\),
+\begin{equation}
+\mathrm{Cov}(R_{t,t+h},R_{s,s+h})
+=
+\#\big([t+1,t+h]\cap[s+1,s+h]\big)\sigma^2,
+\end{equation}
+under independent and homoskedastic returns, where \(\#(\cdot)\) denotes the number of overlapping periods. Hence, whenever \(|t-s|<h\), the covariance is strictly positive. \\
+
+\noindent This result provides the formal justification for the information leakage problem. If one observation belongs to the training set and another overlapping observation belongs to the test set, the model is effectively trained and evaluated on labels that share common future realizations. In that case, the training and testing samples are not informationally separated. Standard random K-fold cross-validation therefore violates the logic of genuine out-of-sample evaluation. This problem is emphasized in \citet{lopez2018advances}, who argues that in financial machine learning the relevant unit is not the timestamp itself but the full label interval associated with that observation. \\
+
+\noindent The issue becomes even stronger when predictors are themselves constructed from rolling windows. For example, if one feature is a moving average
+\begin{equation}
+MA_t^{(k)} = \frac{1}{k}\sum_{i=0}^{k-1}P_{t-i},
+\end{equation}
+\noindent then neighboring observations may share both highly similar regressors and partially identical future outcomes. This double overlap can produce overly optimistic performance measures if the train-test split is not designed carefully. \\
+
+\noindent To address this problem, we adopt the Purged K-Fold cross-validation procedure proposed by \citet{lopez2018advances}. Let \(Test = D_j\) denote the test fold. The training sample is defined as
+\begin{equation}
+Train = D \setminus (Test \cup Embargo),
+\end{equation}
+\noindent where the embargo period is a buffer zone around the test observations. The purging rule removes from the training set every observation whose label interval overlaps with the test set interval. Formally, if a test observation indexed by \(u\) has label interval
+\begin{equation}
+I_u = [u,u+h],
+\end{equation}
+then any training observation \(t\) such that
+\begin{equation}
+I_t \cap I_u \neq \emptyset
+\end{equation}
+must be excluded. Equivalently, observation \(t\) is purged whenever
+\begin{equation}
+[t,t+h]\cap[u,u+h]\neq\emptyset.
+\end{equation}
+This condition is equivalent to
+\begin{equation}
+t \leq u+h
+\qquad \text{and} \qquad
+u \leq t+h.
+\end{equation}
+
+\noindent An embargo buffer around the test fold provides additional protection against residual dependence from serial correlation in predictors and rolling-window features. This approach is consistent with the time-series evaluation literature \citep{bergmeir2012use,bergmeir2018note,cerqueira2020evaluating} and with broader concerns about information separation in empirical asset pricing \citep{gu2020empirical}. In our implementation we set $K=5$ with a 1\% embargo, following \citet{lopez2018advances}.
+
+\subsection{Model interpretability}
+
+Predictive accuracy alone does not establish economic relevance. We therefore supplement aggregate performance metrics with SHAP (SHapley Additive exPlanations) decompositions \citep{lundberg2017unified}, which attribute each prediction additively to the contributing features. For tree-based methods, SHAP values can be computed exactly in polynomial time via the TreeSHAP algorithm. Globally, the mean absolute SHAP value of predictor~$j$ serves as an importance measure comparable across models. Locally, SHAP dependence plots reveal the functional form linking a feature's raw value to its marginal contribution---enabling us to assess, for instance, whether the RSI enters the model as a momentum-continuation signal (monotonically increasing) or as a mean-reversion signal (non-monotonic). This distinction is economically meaningful and cannot be inferred from a single importance ranking.
+
+
+%% === BLOCK 3: Data Section ===
+
+\section{Data}
+
+\subsection{Investment universe and sample period}
+
+Our empirical analysis is based on daily closing prices for 25~U.S.-listed equities drawn from five broad economic sectors: Technology (AAPL, MSFT, GOOGL, NVDA, META), Automotive (TSLA, F, GM, TM, HMC), Consumer (NKE, SBUX, MCD, DIS, NFLX), Financial (JPM, BAC, GS, MS, C), and Healthcare (JNJ, UNH, PFE, ABBV, TMO). The sample runs from January~1,~2020 through December~31,~2024, yielding approximately 1{,}257~trading days per stock. All data are sourced from Yahoo Finance via the \texttt{yfinance} Python API. \\
+
+\noindent This five-year window is selected because it spans a sequence of structurally distinct market regimes: the COVID-19 crash and subsequent recovery (March-August~2020), the speculative retail-trading episode of 2021, the monetary-tightening cycle and equity selloff of 2022, and the technology-led rally driven by the emergence of large language models in 2023--2024. This heterogeneity is desirable because it forces predictive models to generalize across different volatility and trend conditions rather than exploit a single dominant regime. \\
+
+\noindent A preliminary data-quality assessment confirms that all 25~stocks have zero missing observations for the OHLCV fields, so neither imputation nor interpolation is required. The average daily return across the panel is positive but small (consistent with the long-run equity premium), while annualized volatility ranges from roughly 19\% (JNJ, Healthcare) to over 65\% (TSLA, Automotive). Tesla exhibits the most extreme tail behavior, with 44~daily moves exceeding $\pm 10\%$ during the sample period. These distributional properties---fat tails, positive skewness, and heterogeneous volatility---are characteristic of equity return data and motivate the use of nonparametric models that impose no distributional assumptions.
+
+\subsection{Feature construction}
+
+From the raw OHLCV series we compute 14~technical indicators organized into four categories. The \textit{momentum} group comprises the Relative Strength Index (RSI), Stochastic Oscillator~(\%K), Williams~\%R, the MACD histogram, the Price Rate of Change (PROC), and the Commodity Channel Index (CCI). The \textit{volatility} group includes Bollinger Band Width, the Bollinger \%B indicator, the Average True Range (ATR), and 20-day historical volatility. The \textit{volume} group consists of On-Balance Volume (OBV), the Money Flow Index (MFI), and the Accumulation/Distribution Line. Finally, the \textit{trend} category is represented by the Average Directional Index (ADX). The first six indicators replicate the feature set of \citet{basak2019predicting}; the remaining eight extend coverage to volatility, trend strength, and volume-weighted dimensions that are absent from the original study. \\
+
+\noindent Each of the 14~base indicators is augmented by its one-day first difference ($\Delta x_{jt} = x_{jt} - x_{j,t-1}$), yielding 28~candidate features. The change features capture the \emph{dynamics} of each indicator---whether momentum is accelerating, volatility is expanding, or volume pressure is shifting---information that a single cross-sectional snapshot cannot convey. \\
+
+\noindent An important methodological choice concerns the interaction between indicator computation and label smoothing. \citet{basak2019predicting} apply exponential smoothing to the raw price series \emph{before} computing technical indicators, which introduces double-smoothing because most indicators already embed their own internal averaging (e.g., the RSI uses an exponential moving average of gains and losses). In our pipeline, indicators are computed on unsmoothed OHLCV data so that they retain full sensitivity to market conditions. Smoothing is applied only to the closing price series used for label construction, via Discrete Wavelet Transform denoising with a Daubechies-4 mother wavelet \citep{donoho1994ideal}. This wavelet filter achieves approximately 67.5\% noise reduction while preserving sharp transitions better than exponential smoothing (78.9\% noise reduction), which tends to introduce excessive lag.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.82\textwidth]{figures/smoothing_comparaison.png}
+\caption{Comparison of three smoothing methods applied to AAPL closing prices. Exponential smoothing (78.9\% noise reduction) introduces the most lag; wavelet denoising (67.5\%) preserves sharp transitions better, making it preferable for label construction.}
+\label{fig:smoothing}
+\end{figure}
+
+\subsection{Feature selection}
+\label{sec:feat_sel}
+
+With 28~candidate predictors and approximately 1{,}250~observations per stock, a disciplined selection procedure is necessary to control estimation variance and remove redundant inputs. We adopt a two-stage pipeline. \\
+
+\noindent \textit{Stage~1---Correlation filter.} We compute the pairwise Pearson correlation matrix of all 28~features and drop one member from every pair whose absolute correlation exceeds~0.9. This threshold eliminates the near-perfect collinearity among the momentum oscillators noted by \citet{basak2019predicting}: the Stochastic Oscillator, Williams~\%R, and CCI/Bollinger~\%B pair all exceed $|\rho| > 0.92$. After this step the candidate set is reduced to approximately 20~features. \\
+
+\noindent \textit{Stage~2---Boruta algorithm.} The surviving features are submitted to the Boruta wrapper method \citep{kursa2010feature}, which creates randomized ``shadow'' copies of each real predictor, trains a Random Forest, and uses a statistical test to determine whether each real feature is significantly more important than the best shadow feature. Features that pass this test are classified as \emph{confirmed}; those that do not are \emph{rejected}. The final selected set contains 13~features---comprising a mix of base indicators and their change counterparts---which are used in all subsequent model estimation. \\
+
+\noindent Figure~\ref{fig:feature_corr} displays the pairwise correlation structure of the 14~base indicators, and Figure~\ref{fig:boruta} reports the Boruta importance ranking with confirmed and rejected features clearly demarcated.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.78\textwidth]{figures/feature_correlation_heatmap.png}
+\caption{Pairwise correlation matrix of the 14~base technical indicators (AAPL). The block structure reveals high redundancy within the momentum group (RSI--SO--WR, $\rho>0.92$) and near-perfect collinearity between CCI and Bollinger~\%B ($\rho=0.99$).}
+\label{fig:feature_corr}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.6\textwidth]{figures/boruta_feature_importance.png}
+\caption{Boruta feature validation. Green: confirmed (significantly more important than the best shadow feature); red: rejected. The final model retains 13~confirmed predictors.}
+\label{fig:boruta}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.55\textwidth]{figures/feature_target_correlation.png}
+\caption{Absolute Pearson correlation between each candidate feature and the binary target (AAPL, 5-day window). RSI and its first difference exhibit the strongest univariate association with future direction.}
+\label{fig:target_corr}
+\end{figure}
+
+\subsection{Label construction and class balance}
+
+The binary target variable is defined as $y_t = \mathbf{1}\{\tilde{P}_{t+h} > \tilde{P}_t\}$, where $\tilde{P}_t$ denotes the wavelet-denoised closing price and $h \in \{1,2,5,10,15\}$~trading days is the forecasting horizon. Five horizons are considered to assess whether predictability varies with the investment holding period. \\
+
+\noindent Across all horizons the label distribution exhibits a moderate class imbalance of roughly 61\% positive (UP) versus 39\% negative (DOWN), reflecting the structural upward bias of U.S.\ equities during the sample period. This imbalance is addressed in model training via sample weighting proportional to the inverse class frequency, which prevents the classifiers from converging to a trivial majority-class rule.
+
+\subsection{Methodological pipeline overview}
+
+Figure~\ref{fig:pipeline} provides a schematic summary of the complete empirical pipeline, from raw data acquisition through to model evaluation and interpretation.
+
+\begin{figure}[H]
+\centering
+\resizebox{\textwidth}{!}{%
+\begin{tikzpicture}[
+    node distance=0.5cm and 1.0cm,
+    >={Stealth[length=3mm]},
+    % ---- Phase (header) boxes ----
+    phase/.style={
+        rectangle, rounded corners=4pt,
+        draw=black!70, line width=0.8pt,
+        fill=#1!12, minimum width=3.8cm, minimum height=1.1cm,
+        text centered, font=\small\bfseries, text width=3.6cm,
+        inner sep=5pt,
+        align=center,
+        execute at begin node={\hyphenpenalty=10000\exhyphenpenalty=10000}
+    },
+    % ---- Detail (description) boxes ----
+    detail/.style={
+        rectangle, rounded corners=2pt,
+        draw=black!40, line width=0.5pt,
+        fill=white, minimum width=3.8cm, minimum height=0.8cm,
+        text centered, font=\scriptsize, text width=3.6cm,
+        inner sep=4pt,
+        align=center,
+        execute at begin node={\hyphenpenalty=10000\exhyphenpenalty=10000}
+    },
+    arrow/.style={->, thick, black!60}
+]
+ 
+% ==================== ROW 1 ====================
+\node[phase=blue] (data) {Data\\ Acquisition};
+\node[detail, below=0.3cm of data] (data_d) {%
+  25 stocks $\times$ 5 sectors\\
+  Yahoo Finance OHLCV\\
+  2020--2024 (1,257 days)};
+ 
+\node[phase=blue, right=1.2cm of data] (feat) {Feature\\ Engineering};
+\node[detail, below=0.3cm of feat] (feat_d) {%
+  14 technical indicators\\
+  + 14 $\Delta$ features = 28\\
+  Momentum / Vol.\ / Volume / Trend};
+ 
+\node[phase=blue, right=1.2cm of feat] (fsel) {Feature\\ Selection};
+\node[detail, below=0.3cm of fsel] (fsel_d) {%
+  Correlation filter ($|\rho|>0.9$)\\
+  + Boruta validation\\
+  28 $\to$ 13 features};
+ 
+\node[phase=blue, right=1.2cm of fsel] (label) {Label\\ Construction};
+\node[detail, below=0.3cm of label] (label_d) {%
+  Wavelet denoising (db4)\\
+  $y_t = \mathbf{1}\{\tilde{P}_{t+h}>\tilde{P}_t\}$\\
+  $h\in\{1,2,5,10,15\}$ days};
+ 
+% ==================== ROW 2 ====================
+\node[phase=blue, below=2.6cm of data] (valid) {Validation\\ Framework};
+\node[detail, below=0.3cm of valid] (valid_d) {%
+  Purged K\nobreakdash-Fold CV\\
+  ($K{=}5$, 1\% embargo)\\
+  vs.\ Standard K\nobreakdash-Fold};
+ 
+\node[phase=blue, right=1.2cm of valid] (models) {Model\\ Estimation};
+\node[detail, below=0.3cm of models] (models_d) {%
+  RF, XGBoost, GB,\\
+  LightGBM, CatBoost\\
+  + 3 baselines + Stacking};
+ 
+\node[phase=blue, right=1.2cm of models] (tune) {Hyperparameter\\ Tuning};
+\node[detail, below=0.3cm of tune] (tune_d) {%
+  Optuna (TPE sampler)\\
+  50 trials per model\\
+  Obj: Purged CV accuracy};
+ 
+\node[phase=blue, right=1.2cm of tune] (interp) {Interpretation\\ and Evaluation};
+\node[detail, below=0.3cm of interp] (interp_d) {%
+  SHAP values\\
+  Sector \& window analysis\\
+  Portfolio aggregation};
+ 
+% ==================== ARROWS ====================
+\draw[arrow] (data)  -- (feat);
+\draw[arrow] (feat)  -- (fsel);
+\draw[arrow] (fsel)  -- (label);
+\draw[arrow] (label.south) -- ++(0,-2.2) -| (valid.north);
+\draw[arrow] (valid) -- (models);
+\draw[arrow] (models) -- (tune);
+\draw[arrow] (tune) -- (interp);
+ 
+\end{tikzpicture}
+}%
+\caption{Schematic overview of the empirical pipeline. The upper row covers data preparation (stages~1--4); the lower row covers model estimation and evaluation (stages~5--8). Indicators are computed on raw prices; wavelet smoothing is applied only for label creation. All model evaluations use Purged K-Fold Cross-Validation.}
+\label{fig:pipeline}
+\end{figure}
+
+
+%% === BLOCK 4: Results Section ===
+
+\section{Results}
+
+This section reports the empirical findings in five parts. We first quantify the accuracy inflation induced by standard cross-validation relative to Purged K-Fold (Section~\ref{sec:leakage}). We then compare baseline and tree-based model performance (Section~\ref{sec:baseline}), assess the impact of hyperparameter tuning (Section~\ref{sec:tuning}), examine how accuracy varies across forecasting horizons and economic sectors (Sections~\ref{sec:window}--\ref{sec:sector}), and conclude with model interpretability through SHAP analysis (Section~\ref{sec:shap}).
+
+\subsection{Information leakage and the case for purged validation}
+\label{sec:leakage}
+
+Table~\ref{tab:kfold} reports the average accuracy of all tree-based models under standard K-fold and Purged K-Fold cross-validation for AAPL across the five forecasting windows. The results confirm the theoretical argument developed in Section~2.3: standard cross-validation systematically overstates predictive accuracy, and the magnitude of the bias increases monotonically with the label horizon.
+
+\begin{table}[H]
+\centering
+\scriptsize
+\caption{Average accuracy under Standard vs.\ Purged K-Fold cross-validation (AAPL, all models).}
+\label{tab:kfold}
+\begin{tabular}{lccr}
+\toprule
+\textbf{Window} & \textbf{Standard K-Fold} & \textbf{Purged K-Fold} & \textbf{Inflation} \\
+\midrule
+1 day   & 78.8\% & 67.4\% & +11.4pp \\
+2 days  & 78.4\% & 63.4\% & +15.0pp \\
+5 days  & 81.0\% & 60.6\% & +20.4pp \\
+10 days & 83.5\% & 52.8\% & +30.7pp \\
+15 days & 84.6\% & 51.8\% & +32.8pp \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\noindent At the one-day horizon the inflation is already 11.4~percentage points; at the 15-day horizon it exceeds 32~percentage points, bringing the standard K-fold estimate to 84.6\% while the leakage-free estimate is only 51.8\%---barely above chance. This pattern has a straightforward interpretation: longer label windows imply more overlap between adjacent observations, so a larger fraction of the training data is contaminated with information from the test set. The near-random performance at the 15-day horizon under Purged K-Fold confirms that, once leakage is eliminated, the signal-to-noise ratio for medium-term directional prediction is very low. \\
+
+\noindent Figure~\ref{fig:kfold} visualizes this comparison across all five models and horizons, making the divergence between the two validation schemes apparent.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.88\textwidth]{figures/kfold_comparison.png}
+\caption{Standard vs.\ Purged K-Fold accuracy across models and horizons (AAPL). The gap widens monotonically with the label horizon, confirming that overlapping labels inflate performance estimates.}
+\label{fig:kfold}
+\end{figure}
+
+\subsection{Baseline comparison}
+\label{sec:baseline}
+
+To contextualize the performance of tree-based classifiers, we first establish a floor using three baselines of increasing sophistication: a dummy classifier that randomly predicts class proportions (stratified), a logistic regression estimated on the 13~selected features, and a persistence model that predicts tomorrow's direction to be the same as today's. Table~\ref{tab:baseline} reports one-day-horizon results for AAPL under Purged K-Fold validation.
+
+\begin{table}[H]
+\centering
+\caption{Baseline vs.\ tree-based model accuracy (AAPL, 1-day horizon, Purged K-Fold).}
+\scriptsize
+\label{tab:baseline}
+\begin{tabular}{lcc}
+\toprule
+\textbf{Model} & \textbf{Accuracy (\%)} & \textbf{Description} \\
+\midrule
+\multicolumn{3}{l}{\textit{Baseline Models}} \\
+\quad Dummy (Stratified)    & 50.1 & Predict class proportions \\
+\quad Logistic Regression   & 54.7 & Linear model on 13 features \\
+\quad Persistence           & 63.2 & Predict tomorrow = today \\
+\midrule
+\multicolumn{3}{l}{\textit{Tree-Based Models (Tuned)}} \\
+\quad Gradient Boosting     & 70.1 & \multirow{5}{*}{Ensemble methods on 13 features} \\
+\quad XGBoost               & 72.3 & \\
+\quad LightGBM              & 72.6 & \\
+\quad CatBoost              & 72.9 & \\
+\quad Random Forest         & \textbf{73.0} & \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\noindent The stratified dummy confirms that the task is non-trivial: random guessing yields roughly 50\%. Logistic regression reaches only 54.7\%, indicating that the mapping from technical indicators to future direction is predominantly nonlinear---a finding consistent with the threshold and interaction effects documented in \citet{gu2020empirical}. The persistence baseline achieves 63.2\% by exploiting short-term return autocorrelation, the strongest univariate predictor of next-day direction. All five tree-based classifiers exceed this threshold, with Random Forest at 73.0\% and CatBoost at 72.9\%. The incremental margin of roughly ten percentage points above persistence reflects genuine nonlinear predictive content extracted from the multi-dimensional indicator space. \\
+
+\noindent Figure~\ref{fig:baseline_comparison} displays this hierarchy graphically.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.58\textwidth]{figures/baseline_vs_tree_comparison.png}
+\caption{Accuracy of baseline and tuned tree-based classifiers (AAPL, 1-day, Purged K-Fold). The dotted line marks 50\% (random chance). All ensembles exceed the persistence baseline by at least seven percentage points.}
+\label{fig:baseline_comparison}
+\end{figure}
+
+\subsection{Hyperparameter tuning}
+\label{sec:tuning}
+
+Default hyperparameters rarely yield optimal performance for complex ensemble models. We optimize each classifier using 50~Optuna trials with a Tree-structured Parzen Estimator sampler, using Purged K-Fold accuracy as the objective function. Table~\ref{tab:tuning} compares default and tuned performance; Table~\ref{tab:hyperparameters} reports the selected hyperparameters.
+
+\begin{table}[H]
+\centering
+\caption{Default vs tuned model performance (AAPL, 1-day)}
+\label{tab:tuning}
+\begin{tabular}{lcccccc}
+\toprule
+\textbf{Model} & \textbf{Default} & \textbf{Tuned} & \textbf{Gain} & \textbf{Precision} & \textbf{Recall} & \textbf{AUC} \\
+\midrule
+Gradient Boosting & 60.7\% & 70.1\% & +9.4pp & 0.810 & 0.642 & 0.757 \\
+XGBoost           & 60.2\% & 72.3\% & +12.1pp & 0.794 & 0.708 & 0.758 \\
+LightGBM          & 65.3\% & 72.6\% & +7.3pp  & 0.760 & 0.775 & 0.751 \\
+CatBoost          & 71.3\% & 72.9\% & +1.6pp  & 0.800 & 0.711 & \textbf{0.770} \\
+Random Forest     & 65.2\% & \textbf{73.0\%} & +7.8pp & 0.783 & 0.743 & 0.755 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[H]
+\centering
+\small
+\caption{Selected tuned hyperparameters (AAPL, 1-day, 50 Optuna trials)}
+\label{tab:hyperparameters}
+\begin{tabular}{lcccc}
+\toprule
+\textbf{Parameter} & \textbf{XGBoost} & \textbf{LightGBM} & \textbf{CatBoost} & \textbf{Random Forest} \\
+\midrule
+Learning rate       & 0.032 & 0.045 & 0.028 & -- \\
+Max depth           & 8     & 12    & 7     & 15 \\
+n\_estimators       & 247   & 198   & 312   & 189 \\
+Min samples split   & --    & --    & --    & 12 \\
+Min samples leaf    & --    & 25    & --    & 8 \\
+Subsample           & 0.82  & 0.75  & 0.88  & -- \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\noindent Tuning produces meaningful gains for all models. The largest improvement is observed for XGBoost (+12.1~pp), whose default configuration yields only 60.2\% accuracy. Gradient Boosting similarly gains 9.4~pp, and Random Forest improves by 7.8~pp to reach the highest accuracy of 73.0\%. CatBoost, which benefits from built-in regularization and ordered boosting, shows the smallest marginal gain (+1.6~pp) but already starts from a strong default of 71.3\%. \\
+
+\noindent Figure~\ref{fig:default_vs_tuned} visualizes these gains for each model. Notable patterns in the tuned hyperparameters include moderate learning rates (0.028--0.045) paired with deeper trees and subsampling ratios below unity, all of which serve as regularization devices consistent with the guidance in \citet{chen2016xgboost}. CatBoost selects the highest number of estimators (312) combined with the smallest learning rate (0.028), reflecting its conservative sequential update strategy.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.7\textwidth]{figures/default_vs_tuned_comparison.png}
+\caption{Default vs.\ tuned accuracy for each model (AAPL, 1-day, Purged K-Fold). Annotations show the gain in percentage points. XGBoost and Gradient Boosting benefit most from optimization.}
+\label{fig:default_vs_tuned}
+\end{figure}
+
+\subsection{Detailed single-stock evaluation}
+
+Before scaling the analysis to the full panel, we examine AAPL in detail at the one-day horizon. Figure~\ref{fig:roc} plots the receiver operating characteristic curves for all five tuned classifiers; Figure~\ref{fig:confusion} displays the corresponding confusion matrices.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.52\textwidth]{figures/roc_curves_comparison.png}
+\caption{ROC curves for the five tuned models (AAPL, 1-day, temporal split). CatBoost achieves the highest AUC (0.770).}
+\label{fig:roc}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.95\textwidth]{figures/confusion_matrices.png}
+\caption{Confusion matrices (AAPL, 1-day, temporal split). Random Forest achieves the best balance between true positives and true negatives; Gradient Boosting favours precision over recall.}
+\label{fig:confusion}
+\end{figure}
+
+\noindent The ROC analysis confirms that CatBoost achieves the highest area under the curve (AUC~=~0.770), indicating superior discriminative ability. The confusion matrices reveal that Gradient Boosting adopts a conservative strategy---high precision (0.810) but lower recall (0.642)---while LightGBM exhibits the opposite profile, favouring recall (0.775) at the expense of precision (0.760). Random Forest strikes the best balance between the two, which explains its top accuracy of 73.0\%.
+
+\subsection{Window effect analysis}
+\label{sec:window}
+
+Table~\ref{tab:window} and Figure~\ref{fig:window_heatmap} report accuracy as a function of the forecasting horizon for all five models on AAPL.
+
+\begin{table}[H]
+\centering
+\caption{Accuracy (\%) by forecasting horizon (AAPL, Purged K-Fold, tuned models).}
+\scriptsize
+\label{tab:window}
+\begin{tabular}{lccccc}
+\toprule
+\textbf{Window} & \textbf{RF} & \textbf{XGBoost} & \textbf{GB} & \textbf{LightGBM} & \textbf{CatBoost} \\
+\midrule
+1 day   & \textbf{73.0} & 72.3 & 70.1 & 72.6 & 72.9 \\
+2 days  & \textbf{69.5} & 67.9 & 65.2 & 68.5 & 69.4 \\
+5 days  & 63.7 & \textbf{63.8} & 63.0 & 63.0 & \textbf{63.8} \\
+10 days & \textbf{54.1} & 51.8 & 52.5 & 52.3 & 53.3 \\
+15 days & 53.2 & 50.1 & 48.7 & \textbf{52.0} & 52.0 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.58\textwidth]{figures/window_accuracy_heatmap.png}
+\caption{Accuracy vs.\ forecasting horizon for each model (AAPL, Purged K-Fold, tuned). Predictability declines monotonically, approaching 50\% at the 15-day horizon.}
+\label{fig:window_heatmap}
+\end{figure}
+
+\noindent Accuracy declines monotonically from roughly 70--73\% at the one-day horizon to approximately 49--53\% at 15~days. The pattern is uniform across all five architectures and admits a natural economic interpretation. At short horizons, momentum-based indicators---particularly the RSI---exploit the well-documented positive first-order autocorrelation in daily equity returns \citep{lo1988stock}. This autocorrelation decays rapidly with the holding period: at five days the signal weakens considerably, and at ten to fifteen days the models converge to random-guess performance. The horizon decay profile is consistent with the adaptive markets view that short-lived inefficiencies are arbitraged away over longer intervals, and it echoes the finding in \citet{gu2020empirical} that machine-learning predictability concentrates at the shortest horizons. \\
+
+\noindent One-way ANOVA tests confirm that the window effect is highly significant ($p < 0.0001$) for every model, confirming that forecasting horizon is a first-order determinant of predictive performance. From a practical standpoint, these results imply that tree-based directional models are best suited to short-horizon market timing (one to two days) and offer little value for medium-term tactical allocation.
+
+\subsection{Cross-sector generalization}
+\label{sec:sector}
+
+Scaling the analysis to the full panel of 25~stocks across five sectors provides a test of external validity. Table~\ref{tab:sector} reports the best-performing model and its average accuracy for each sector, aggregated across all windows. Figure~\ref{fig:sector_heatmap} presents the full model-by-sector heatmap.
+
+\begin{table}[H]
+\centering
+\caption{Best model and average accuracy by sector (all horizons, Purged K-Fold).}
+\scriptsize
+\label{tab:sector}
+\begin{tabular}{lll}
+\toprule
+\textbf{Sector} & \textbf{Best Model} & \textbf{Avg.\ Accuracy (\%)} \\
+\midrule
+Healthcare  & CatBoost      & \textbf{61.3} \\
+Automotive  & CatBoost      & 60.1 \\
+Consumer    & Random Forest & 58.9 \\
+Technology  & CatBoost      & 58.1 \\
+Financial   & Random Forest & 56.3 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.62\textwidth]{figures/sector_heatmap_results.png}
+\caption{Average accuracy (\%) by sector and model (all horizons, Purged K-Fold). Healthcare and Automotive are the most predictable; Financial stocks are the hardest to forecast.}
+\label{fig:sector_heatmap}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.78\textwidth]{figures/sector_analysis.png}
+\caption{Mean accuracy by sector and model with standard-deviation bars. CatBoost dominates in Healthcare, Automotive, and Technology; Random Forest leads in Consumer and Financial.}
+\label{fig:sector_analysis}
+\end{figure}
+
+\noindent Healthcare (61.3\%) and Automotive (60.1\%) are the most predictable sectors; Financial stocks (56.3\%) are the hardest to forecast. The ranking is economically coherent. Healthcare equities exhibit persistent trend dynamics driven by clinical-trial milestones, patent cliffs, and regulatory calendars---events whose aftereffects unfold over multiple days and are well captured by momentum indicators. Automotive stocks during 2020--2024 were dominated by Tesla's large, sustained directional moves, which similarly favour trend-following features. Financial stocks, by contrast, reprice abruptly around macroeconomic releases (Fed decisions, employment reports) that lie outside our technical-indicator information set; their lower predictability reflects a genuine limitation of price-based features rather than a model failure. CatBoost leads in three of five sectors, plausibly because its ordered boosting and built-in target encoding provide stronger regularization in the noisier settings. \\
+
+\noindent Figure~\ref{fig:sector_corr} displays the cross-sector return correlation matrix. All pairwise correlations are positive but moderate ($<0.50$), confirming meaningful independent variation across sectors---a prerequisite for the portfolio-level aggregation analysis that follows.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.45\textwidth]{figures/sector_corr_heatmap.png}
+\caption{Cross-sector return correlation matrix (daily, 2020--2024). All pairwise correlations are positive but moderate ($<0.50$), indicating sufficient independent variation for portfolio aggregation.}
+\label{fig:sector_corr}
+\end{figure}
+
+\subsection{Portfolio-level analysis}
+
+We construct equal-weighted sector portfolios and evaluate prediction accuracy on these aggregated instruments. Table~\ref{tab:portfolio_performance} reports the realized performance of each sector portfolio over the sample period; Table~\ref{tab:portfolio_vs_individual} compares individual-stock and portfolio-level prediction accuracy.
+
+\begin{table}[H]
+\centering
+\scriptsize
+\caption{Sector portfolio performance (2020--2024, baseline = 100).}
+\label{tab:portfolio_performance}
+\begin{tabular}{lrrrrr}
+\toprule
+\textbf{Sector} & \textbf{Final} & \textbf{Total Ret.\ (\%)} & \textbf{Ann.\ Ret.\ (\%)} & \textbf{Vol.\ (\%)} & \textbf{Sharpe} \\
+\midrule
+Technology  & 499 & 398.97 & 38.02 & 32.46 & 1.17 \\
+Automotive  & 252 & 151.72 & 20.33 & 31.37 & 0.65 \\
+Financial   & 167 &  67.47 & 10.89 & 32.95 & 0.33 \\
+Healthcare  & 141 &  41.40 &  7.19 & 19.25 & 0.37 \\
+Consumer    & 136 &  36.18 &  6.39 & 25.04 & 0.26 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[H]
+\centering
+\caption{Portfolio vs.\ individual-stock average accuracy by sector (best model, 1-day).}
+\scriptsize
+\label{tab:portfolio_vs_individual}
+\begin{tabular}{llrr}
+\toprule
+\textbf{Sector} & \textbf{Model} & \textbf{Individual Avg.} & \textbf{Portfolio} \\
+\midrule
+Healthcare  & CatBoost      & 61.3 & 71.9 \\
+Technology  & CatBoost      & 58.1 & 71.0 \\
+Consumer    & Random Forest & 58.9 & 67.3 \\
+Financial   & CatBoost      & 56.3 & 67.1 \\
+Automotive  & Random Forest & 60.1 & 66.7 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.68\textwidth]{figures/portfolio_evolution.png}
+\caption{Equal-weighted sector portfolio evolution (2020--2024, base = 100). Technology dominates with a nearly fivefold cumulative return; Healthcare exhibits the lowest volatility.}
+\label{fig:portfolio_evolution}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.9\textwidth]{figures/individual_vs_portfolio.png}
+\caption{Individual-stock vs.\ portfolio-level accuracy by model and horizon. Aggregation consistently improves directional accuracy, with the largest gains for Technology (+12.9~pp) and Healthcare (+10.6~pp).}
+\label{fig:individual_vs_portfolio}
+\end{figure}
+
+\noindent A striking finding is that portfolio-level directional accuracy consistently exceeds the average accuracy on individual constituent stocks, by margins of 6.6~pp (Automotive) to 12.9~pp (Technology). The mechanism is statistical diversification: in an equal-weighted portfolio of five stocks, idiosyncratic return components---earnings surprises, analyst revisions, firm-specific news---partially cancel, raising the signal-to-noise ratio of the aggregate return series. The resulting labels are more stable (fewer near-zero returns that could flip sign due to noise), and the classification task becomes structurally easier. The largest gain accrues to Technology, whose constituents span diverse sub-industries (semiconductors, advertising, social media, enterprise software) and thus offer the most idiosyncratic-risk cancellation. From an asset-management perspective, this result suggests that directional forecasting models deliver more reliable signals at the sector or index level than at the single-stock level---a finding with direct implications for the design of systematic trading strategies.
+
+\subsection{Stacking ensemble}
+
+We implement a stacking classifier that combines all five tree-based models through a Logistic Regression meta-learner trained on out-of-fold probability predictions. Table~\ref{tab:stacking} compares stacking performance against the individual base learners.
+
+\begin{table}[H]
+\centering
+\caption{Stacking ensemble vs.\ individual models (AAPL, 1-day, Purged K-Fold).}
+\scriptsize
+\label{tab:stacking}
+\begin{tabular}{lccc}
+\toprule
+\textbf{Model} & \textbf{Accuracy (\%)} & \textbf{AUC} & \textbf{F1} \\
+\midrule
+Gradient Boosting        & 70.1 & 0.757 & 0.710 \\
+XGBoost                  & 72.3 & 0.758 & 0.748 \\
+LightGBM                 & 72.6 & 0.751 & 0.767 \\
+CatBoost                 & 72.9 & \textbf{0.770} & 0.753 \\
+Random Forest            & \textbf{73.0} & 0.755 & 0.762 \\
+\midrule
+Stacking (RF+XGB+GB+LGBM + LR) & 71.8 $\pm$ 4.3 & 0.759 & \textbf{0.762} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\noindent The stacking ensemble achieves 71.8\% accuracy with a standard deviation of 4.3~pp, an AUC of 0.759, and the highest F1~score (0.762). While the mean accuracy is slightly below that of Random Forest and CatBoost individually, the stacking ensemble does not outperform the best single model on this dataset. This outcome is not unusual: when individual base learners are highly correlated in their prediction patterns---as is the case here, since all five models operate on the same 13~features derived from price data---the meta-learner has limited scope for exploiting complementary error structures. The stacking ensemble nonetheless represents a useful robustness check, confirming that no single model dramatically under- or over-performs relative to the consensus.
+
+\subsection{Model interpretability: SHAP analysis}
+\label{sec:shap}
+
+To assess whether the predictive models exploit economically plausible signals, we apply SHAP (SHapley Additive exPlanations) decomposition \citep{lundberg2017unified} to each tuned classifier. Figures~\ref{fig:shap_bar}--\ref{fig:shap_cross} report global feature importance, directional effects, and cross-model comparisons.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.95\textwidth]{figures/shap_feature_importance_bar.png}
+\caption{Global SHAP feature importance (mean $|\text{SHAP}|$) for each model (AAPL, 1-day). RSI dominates all architectures, with its relative weight ranging from ${\approx}$25\% (LightGBM) to ${\approx}$48\% (CatBoost).}
+\label{fig:shap_bar}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.62\textwidth]{figures/shap_summary_plot.png}
+\caption{SHAP beeswarm plot for the best model (AAPL, 1-day). Each dot is one test observation; horizontal position is the SHAP value (positive = UP), colour encodes the raw feature value. The monotonically increasing RSI--SHAP relationship is consistent with momentum continuation.}
+\label{fig:shap_bee}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.88\textwidth]{figures/shap_dependence_plots.png}
+\caption{SHAP dependence plots for the three most important features (best model, AAPL, 1-day). The RSI--SHAP curve is approximately monotonic, confirming that higher momentum readings strengthen the predicted probability of an upward move.}
+\label{fig:shap_dep}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.62\textwidth]{figures/shap_cross_model_comparison.png}
+\caption{Cross-model SHAP importance (\%, normalized). RSI dominates all architectures; LightGBM distributes importance more evenly while CatBoost and Gradient Boosting concentrate on the dominant signal.}
+\label{fig:shap_cross}
+\end{figure}
+
+\noindent Several findings merit discussion. First, the Relative Strength Index dominates all five models, contributing between roughly 25\% (LightGBM) and 48\% (CatBoost) of total mean absolute SHAP importance. Economically, the RSI summarizes recent directional momentum over a 14-day lookback. Its dominance at the one-day horizon aligns with the short-term return continuation documented by \citet{jegadeesh1993returns} and \citet{lo2000foundations}: stocks that have risen recently tend to continue rising over the next few days, a pattern that tree-based models can exploit via simple threshold rules on the RSI. \\
+
+\noindent Second, the beeswarm plot (Figure~\ref{fig:shap_bee}) reveals a \emph{monotonically increasing} RSI--SHAP profile: high RSI values push predictions toward UP, low values toward DOWN. This functional form is the signature of a momentum-continuation strategy, not a mean-reversion strategy (which would produce a non-monotonic or decreasing profile at extreme RSI levels). The absence of a reversal effect at RSI values above~70 suggests that, at the daily horizon, overbought conditions do not yet trigger contrarian pressure---consistent with the well-known finding that momentum profits peak at short horizons before reversing at intermediate ones \citep{jegadeesh1993returns}. \\
+
+\noindent Third, the cross-model comparison (Figure~\ref{fig:shap_cross}) reveals an architectural effect: LightGBM distributes importance more evenly, while CatBoost and Gradient Boosting concentrate heavily on RSI. This difference likely reflects the sequential nature of boosting with deeper trees---the algorithm fits the dominant signal first and allocates residual capacity to secondary features---whereas Random Forest, by averaging many independently grown trees, inherently diversifies across predictors. For practitioners, this implies that ensemble-diversity techniques (e.g., stacking models with different importance profiles) may extract complementary information. \\
+
+\noindent The secondary role of volatility features (ATR, historical volatility) is consistent with the observation that realized volatility carries marginal information about the \emph{direction}---though not the magnitude---of future returns. The near-zero SHAP contribution of volume-based features (OBV, AD~Line) at the daily horizon suggests that volume dynamics are largely priced into the momentum indicators and add little incremental signal.
+
+
+%% === BLOCK 5: Conclusion ===
+
+\section{Conclusion}
+
+This paper benchmarks five tree-based classifiers on a panel of 25~U.S.\ equities from five sectors over 2020--2024, with three contributions relevant to the financial forecasting literature. \\
+
+\noindent \textit{Validation matters more than model choice.} Standard K-fold cross-validation inflates reported accuracy by 11 to 33~percentage points relative to the Purged K-Fold procedure of \citet{lopez2018advances}, with the bias growing monotonically in the label horizon. At 15~days, the standard estimate suggests 85\% accuracy while the leakage-free figure is 52\%---indistinguishable from chance. This result implies that a material share of the predictive power claimed in prior work may be an artifact of overlapping-label leakage, and it reinforces the call by \citet{bailey2017dangers} for more disciplined backtesting standards in financial machine learning. \\
+
+\noindent \textit{Realistic accuracy is moderate but meaningful.} Under Purged K-Fold with Bayesian hyperparameter optimization, the best model attains 73\% directional accuracy at the one-day horizon---roughly ten points above persistence and twenty above chance, but far below the 80--95\% figures common in studies with less rigorous validation. Accuracy decays sharply with horizon (to $\approx$52\% at 15~days), consistent with the rapid decay of short-term momentum documented in the asset-pricing literature \citep{jegadeesh1993returns}. \\
+
+\noindent \textit{Interpretability grounds the predictions economically.} SHAP analysis reveals that the RSI is the dominant predictor across all architectures, with a monotonically increasing influence profile consistent with momentum continuation rather than mean reversion. Portfolio-level aggregation improves accuracy by 7--13~pp over individual stocks, reflecting idiosyncratic-noise cancellation and suggesting that directional models are best deployed at the sector or index level. \\
+
+\noindent \textbf{Limitations.} Several caveats temper these findings. (i)~The feature set is restricted to price- and volume-based technical indicators; sentiment, macroeconomic, and options-implied data are excluded. (ii)~Transaction costs, slippage, and market impact are not modeled, so directional accuracy does not map directly to net trading profitability---a distinction emphasized by \citet{lopez2018advances}. (iii)~The sample period 2020--2024 spans unusual regimes (pandemic crash, zero-rate environment, AI-driven rally) that may limit out-of-sample generalizability. (iv)~Hyperparameters are tuned on a single representative stock (AAPL) and applied uniformly across the panel; per-stock optimization could improve results at the cost of additional overfitting risk. (v)~Wavelet denoising parameters were set by convention, not optimized; alternative filters may yield different label constructions and, potentially, different accuracy figures. \\
+
+\noindent \textbf{Future directions.} Walk-forward backtesting with realistic transaction costs would clarify economic significance. Regime-detection mechanisms that adapt model parameters across bull and bear markets could improve robustness. Combining technical indicators with textual or macroeconomic features may recover the medium-horizon predictability that our current feature set fails to capture. Finally, the interaction between label smoothing intensity and downstream prediction accuracy warrants systematic investigation.
+
+\newpage
+
+\bibliographystyle{apalike}
+\bibliography{references}
+
+\end{document}

@@ -1,0 +1,490 @@
+\documentclass[12pt, a4paper]{article}
+
+% --- Packages ---
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[english]{babel}
+\usepackage{amsmath, amssymb}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{multirow}
+\usepackage{hyperref}
+\usepackage{float}
+\usepackage{geometry}
+\usepackage{caption}
+\usepackage{subcaption}
+\usepackage{enumitem}
+\usepackage{natbib}
+\usepackage{xcolor}
+\usepackage{array}
+\usepackage{tabularx}
+
+\geometry{margin=2.5cm}
+\hypersetup{colorlinks=true, linkcolor=blue, citecolor=blue, urlcolor=blue}
+
+% --- Title ---
+\title{\textbf{Stock Market Direction Prediction Using Tree-Based Classifiers:\\A Replication and Methodological Improvement of Basak et al.~(2019)}}
+
+\author{
+    Hanaa TALBI \and Aymen EL GHOUL \and Houssem MAJED \\[6pt]
+    \textit{Master 2 MOSEF -- Mod\'{e}lisation Statistique, \'{E}conomique et Financi\`{e}re} \\
+    \textit{\'{E}cole d'\'{E}conomie de la Sorbonne, Universit\'{e} Paris~1 Panth\'{e}on-Sorbonne}
+}
+
+\date{Academic Year 2024--2025}
+
+\begin{document}
+\maketitle
+
+% ============================================================================
+\begin{abstract}
+This study replicates and extends the methodology of \citet{basak2019} for predicting stock market price direction using tree-based ensemble classifiers. We address several methodological limitations in the original paper---most critically, the use of standard K-Fold cross-validation on time-series data, which introduces temporal information leakage and inflates reported accuracies. Our contributions include: (i)~adopting Purged K-Fold Cross-Validation \citep{lopez2018} to eliminate look-ahead bias, (ii)~extending the feature set from 6 to 14 technical indicators with rigorous Boruta-based feature selection reducing them to 10, (iii)~applying wavelet denoising exclusively for label creation to avoid double-smoothing, (iv)~incorporating modern gradient boosting frameworks (CatBoost, LightGBM) alongside the original Random Forest and XGBoost, and (v)~performing hyperparameter optimization with Optuna. Our evaluation spans 25 stocks across 5 sectors over 5 trading windows (625 experiments). Under proper Purged K-Fold validation, the best individual model (CatBoost) achieves 66.7\% average accuracy at the 1-day horizon---substantially below the 90--95\% reported by \citet{basak2019} with standard validation, but consistent with efficient market expectations. A stacking ensemble reaches 73.2\% on AAPL. SHAP analysis reveals RSI as the dominant predictive feature across all models.
+
+\medskip
+\noindent\textbf{Keywords:} Stock market prediction, Tree-based classifiers, Purged K-Fold, CatBoost, SHAP, Technical indicators, Data leakage.
+\end{abstract}
+
+% ============================================================================
+\section{Introduction}
+\label{sec:introduction}
+
+Predicting the direction of stock prices is a fundamental challenge in computational finance. The efficient market hypothesis \citep{fama1970} posits that asset prices fully reflect all available information, implying that consistent prediction above random chance should be impossible. Yet, a growing body of machine learning literature reports classification accuracies of 70--95\% for stock direction prediction \citep{basak2019}, seemingly contradicting market efficiency.
+
+This apparent contradiction motivates a careful methodological investigation. \citet{basak2019} predict stock price direction using Random Forest and Gradient Boosted Decision Trees (XGBoost) with 6 technical indicators, reporting accuracies reaching 93\% for 90-day prediction windows. However, their validation methodology---random train/test splitting of time-series data---introduces temporal information leakage that inflates performance estimates.
+
+In this study, we replicate and extend the work of \citet{basak2019} with the following contributions:
+\begin{enumerate}[itemsep=2pt]
+    \item \textbf{Proper temporal validation}: We replace random splitting with Purged K-Fold Cross-Validation \citep{lopez2018}, which eliminates information leakage through purging and embargo mechanisms.
+    \item \textbf{Extended feature set}: We augment the original 6 momentum-centric indicators with 8 additional indicators spanning volatility, trend strength, and volume categories, then apply Boruta feature selection \citep{kursa2010} to retain only the 10 most informative features.
+    \item \textbf{Improved preprocessing}: We apply wavelet denoising \citep{donoho1994} exclusively for label creation, while computing technical indicators on raw price data to avoid the double-smoothing artifact present in the original methodology.
+    \item \textbf{Modern classifiers}: We add CatBoost \citep{prokhorenkova2018} and LightGBM \citep{ke2017} to the model comparison, alongside Optuna-based hyperparameter optimization \citep{akiba2019}.
+    \item \textbf{Comprehensive evaluation}: We evaluate on 25 stocks across 5 sectors, 5 trading windows (1, 2, 5, 10, 15~days), with SHAP interpretability analysis \citep{lundberg2017} and stacking ensembles \citep{wolpert1992}.
+\end{enumerate}
+
+% ============================================================================
+\section{Data}
+\label{sec:data}
+
+\subsection{Stock Universe}
+Our investment universe comprises 25 stocks from 5 sectors, sourced from Yahoo Finance over the period January 2020 to December 2024 (5 years, 1{,}257 trading days per stock):
+
+\begin{table}[H]
+\centering
+\caption{Stock universe by sector.}
+\label{tab:stocks}
+\begin{tabular}{ll}
+\toprule
+\textbf{Sector} & \textbf{Stocks} \\
+\midrule
+Technology & AAPL, MSFT, GOOGL, AMZN, NVDA \\
+Automotive & TSLA, F, GM, TM, HMC \\
+Consumer & NKE, SBUX, MCD, KO, PG \\
+Financial & JPM, BAC, GS, MS, C \\
+Healthcare & JNJ, PFE, UNH, MRK, ABT \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Data quality assessment confirms 0\% missing values and 0 duplicate entries across all 25 stocks. Daily return analysis reveals leptokurtic distributions (excess kurtosis ranging from 2.1 for PG to 27.6 for TSLA), consistent with well-documented fat-tailed behavior in financial returns.
+
+\subsection{Exploratory Data Analysis}
+Cross-sector return correlation analysis reveals moderate positive correlations, with the highest inter-sector correlation at $\rho = 0.493$ (Technology--Consumer). This moderate correlation structure supports the use of multi-sector diversification in our portfolio analysis.
+
+% ============================================================================
+\section{Methodology}
+\label{sec:methodology}
+
+\subsection{Technical Indicators}
+\label{subsec:indicators}
+
+We compute 14 technical indicators organized into four categories:
+
+\paragraph{Momentum indicators (original Basak et al.)} The 6 indicators from the original study:
+\begin{itemize}[itemsep=1pt]
+    \item \textbf{RSI} (Relative Strength Index, \citealp{wilder1978}): $RSI = 100 - \frac{100}{1 + RS}$, where $RS = \frac{\text{avg gain}}{\text{avg loss}}$ over 14 periods.
+    \item \textbf{SO} (Stochastic Oscillator): $\%K = \frac{C - L_{14}}{H_{14} - L_{14}} \times 100$, measuring closing price position within the recent range.
+    \item \textbf{Williams \%R}: $\%R = \frac{H_{14} - C}{H_{14} - L_{14}} \times (-100)$, mathematically equivalent to $-(1-\%K) \times 100$.
+    \item \textbf{MACD} (Moving Average Convergence Divergence, \citealp{appel2005}): $MACD = EMA_{12} - EMA_{26}$.
+    \item \textbf{PROC} (Price Rate of Change): $PROC = \frac{P_t - P_{t-10}}{P_{t-10}} \times 100$.
+    \item \textbf{OBV} (On Balance Volume): Cumulative sum of signed daily volumes.
+\end{itemize}
+
+\paragraph{Extended indicators} We add 8 indicators to address the momentum bias of the original feature set:
+\begin{itemize}[itemsep=1pt]
+    \item \textbf{Bollinger Bands}: BB\_WIDTH (bandwidth) and BB\_PCT (\%B position).
+    \item \textbf{Volatility}: ATR (Average True Range, \citealp{wilder1978}) and Historical Volatility (20-day rolling standard deviation of returns).
+    \item \textbf{Trend strength}: ADX (Average Directional Index, \citealp{wilder1978}).
+    \item \textbf{Volume-weighted}: MFI (Money Flow Index) and AD\_LINE (Accumulation/Distribution Line).
+    \item \textbf{Mean-reversion}: CCI (Commodity Channel Index).
+\end{itemize}
+
+\subsection{Feature Selection}
+\label{subsec:feature_selection}
+
+We apply a two-step feature selection pipeline to reduce the 14 indicators to a non-redundant set:
+
+\paragraph{Step 1: Correlation filter ($|\rho| > 0.9$)} The absolute correlation matrix reveals strong redundancies: SO/WR ($\rho = 0.925$), BB\_PCT/CCI ($\rho = 0.987$), OBV/AD\_LINE ($\rho = 0.700$). We remove SO, WR, BB\_PCT, and CCI as the less informative member of each correlated pair.
+
+\paragraph{Step 2: Boruta validation} The Boruta algorithm \citep{kursa2010} tests each remaining feature against shadow (permuted) features using Random Forest importance. All 10 retained features are confirmed as significantly more important than random noise.
+
+\subsection{Preprocessing Pipeline}
+\label{subsec:preprocessing}
+
+A key methodological improvement over \citet{basak2019} concerns preprocessing order:
+
+\begin{itemize}[itemsep=2pt]
+    \item \textbf{Original approach}: Apply exponential smoothing to prices first, then compute indicators on smoothed data. This creates \emph{double-smoothing}---indicators like RSI and MACD already contain internal smoothing, and applying exponential smoothing beforehand dampens the very signals they are designed to capture.
+    \item \textbf{Our approach}: Compute technical indicators on \emph{raw} OHLCV data, then apply smoothing \emph{only for label creation}. This preserves the full information content of the indicators while reducing noise in the target variable.
+\end{itemize}
+
+For label creation, we compare three smoothing methods:
+\begin{enumerate}[itemsep=1pt]
+    \item \textbf{Exponential smoothing} \citep{basak2019}: $S_t = \alpha Y_t + (1 - \alpha) S_{t-1}$, with $\alpha = 0.095$.
+    \item \textbf{Wavelet denoising} \citep{donoho1994}: Discrete Wavelet Transform (DWT) with soft thresholding, decomposing the signal into frequency components and removing high-frequency noise.
+    \item \textbf{Savitzky--Golay filter} \citep{savitzky1964}: Local polynomial fitting over successive windows.
+\end{enumerate}
+
+Empirical comparison shows exponential smoothing achieves the highest label stability (78.9\% agreement with raw labels), followed by Savitzky--Golay (68.6\%) and wavelet (67.5\%). We select wavelet denoising as our primary method, as it provides a principled frequency-domain decomposition while maintaining sufficient label variation ($\sim$53--60\% UP class across stocks).
+
+The binary target variable is defined as:
+\begin{equation}
+    Label_t = \begin{cases} +1 & \text{if } \tilde{P}_{t+w} > \tilde{P}_t \quad \text{(UP)} \\ -1 & \text{if } \tilde{P}_{t+w} \leq \tilde{P}_t \quad \text{(DOWN)} \end{cases}
+\end{equation}
+where $\tilde{P}$ denotes the wavelet-denoised price and $w \in \{1, 2, 5, 10, 15\}$ is the trading window.
+
+\subsection{Validation Methodology: Purged K-Fold Cross-Validation}
+\label{subsec:validation}
+
+Standard K-Fold cross-validation randomly shuffles observations, ignoring temporal ordering. In financial time series, this causes \emph{information leakage}: a training sample from time $t$ may use label information overlapping with a test sample from time $t-1$. This leakage is particularly severe for longer trading windows---a 15-day label at time $t$ shares 14 days with the label at $t+1$.
+
+Purged K-Fold Cross-Validation \citep{lopez2018} solves this with two mechanisms:
+\begin{enumerate}[itemsep=2pt]
+    \item \textbf{Purging}: Removes any training observation whose label period overlaps with a test observation's label period.
+    \item \textbf{Embargo}: Adds a buffer (1\% of dataset) after each test fold to prevent information leakage from residual serial correlation.
+\end{enumerate}
+
+We use 5 folds with 1\% embargo throughout all experiments. Our empirical comparison demonstrates that standard K-Fold inflates accuracy by 15--30 percentage points compared to Purged K-Fold, with the gap widening for longer prediction windows.
+
+\subsection{Models}
+\label{subsec:models}
+
+\paragraph{Baseline models} We establish three baselines: Dummy Stratified (random predictions respecting class proportions), Dummy Most Frequent (always predicts the majority class), and Logistic Regression (linear baseline).
+
+\paragraph{Tree-based classifiers} We evaluate five ensemble methods:
+\begin{itemize}[itemsep=2pt]
+    \item \textbf{Random Forest} \citep{breiman2001}: Bagging with random subspace method. Balanced class weights.
+    \item \textbf{XGBoost} \citep{chen2016}: Gradient boosting with L1/L2 regularization.
+    \item \textbf{Gradient Boosting} \citep{friedman2001}: Classical gradient boosting with deviance loss.
+    \item \textbf{LightGBM} \citep{ke2017}: Histogram-based gradient boosting with leaf-wise growth.
+    \item \textbf{CatBoost} \citep{prokhorenkova2018}: Ordered boosting with automatic categorical feature handling. Balanced class weights.
+\end{itemize}
+
+All models handle class imbalance through balanced class weights (RF, CatBoost, LightGBM) or sample weighting (XGBoost, Gradient Boosting).
+
+\paragraph{Stacking ensemble} Following \citet{wolpert1992}, we implement a Stacking Classifier combining the five tree-based models as base learners with a Logistic Regression meta-learner. Internal cross-validation uses Purged K-Fold (3~folds) to generate out-of-fold probability predictions as meta-features.
+
+\subsection{Hyperparameter Optimization}
+\label{subsec:tuning}
+
+We use Optuna \citep{akiba2019} with the Tree-structured Parzen Estimator (TPE) sampler for hyperparameter optimization. Each model is tuned over 50 trials on AAPL (1-day window) with Purged K-Fold accuracy as the objective. The tuned hyperparameters are then applied across all stocks and windows.
+
+\subsection{Model Interpretability}
+\label{subsec:shap}
+
+We use SHAP (SHapley Additive exPlanations, \citealp{lundberg2017}) to decompose each prediction into individual feature contributions. SHAP values satisfy three desirable properties: local accuracy, missingness, and consistency, making them the gold standard for model interpretation.
+
+% ============================================================================
+\section{Results}
+\label{sec:results}
+
+\subsection{Impact of Validation Methodology}
+\label{subsec:kfold_comparison}
+
+The comparison between standard and Purged K-Fold reveals the most important finding of this study: \textbf{standard cross-validation dramatically overestimates performance} in financial time series.
+
+\begin{table}[H]
+\centering
+\caption{Accuracy: Standard K-Fold vs Purged K-Fold (AAPL, CatBoost).}
+\label{tab:kfold}
+\begin{tabular}{lccr}
+\toprule
+\textbf{Window} & \textbf{Standard K-Fold} & \textbf{Purged K-Fold} & \textbf{Inflation} \\
+\midrule
+1 day   & $\sim$79--85\% & $\sim$53--64\% & +15--20pp \\
+5 days  & $\sim$82--87\% & $\sim$55--60\% & +22--27pp \\
+15 days & $\sim$85--90\% & $\sim$51--55\% & +25--30pp \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The inflation increases with window size because longer trading windows create more temporal overlap between consecutive labels. A 15-day label at time $t$ shares 14 days with the label at $t+1$, and standard K-Fold allows the model to ``peek'' at nearly identical labels during training. This is the primary explanation for the 90--95\% accuracies reported by \citet{basak2019}.
+
+\subsection{Baseline and Initial Model Comparison}
+\label{subsec:baseline}
+
+\begin{table}[H]
+\centering
+\caption{Baseline vs Tree-Based models (AAPL, 1-day window, Purged K-Fold, default hyperparameters).}
+\label{tab:baseline}
+\begin{tabular}{lr}
+\toprule
+\textbf{Model} & \textbf{Accuracy (\%)} \\
+\midrule
+Dummy Stratified      & 50.1 \\
+Logistic Regression   & 54.7 \\
+Dummy Most Frequent   & 60.1 \\
+\midrule
+XGBoost               & 60.2 \\
+Gradient Boosting     & 60.7 \\
+Random Forest         & 65.2 \\
+LightGBM              & 65.3 \\
+CatBoost              & \textbf{71.3} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+All tree-based models surpass the linear baseline (54.7\%), confirming that the relationship between technical indicators and price direction is fundamentally non-linear. The majority-class baseline (60.1\%) establishes the practical threshold: any model below this is worse than always predicting UP.
+
+\subsection{Hyperparameter Tuning}
+\label{subsec:tuning_results}
+
+\begin{table}[H]
+\centering
+\caption{Impact of Optuna hyperparameter tuning (AAPL, 1-day, Purged K-Fold).}
+\label{tab:tuning}
+\begin{tabular}{lccc}
+\toprule
+\textbf{Model} & \textbf{Default (\%)} & \textbf{Tuned (\%)} & \textbf{Gain} \\
+\midrule
+Random Forest     & 65.2 & 71.7 & +6.5pp \\
+XGBoost           & 60.2 & 71.7 & \textbf{+11.5pp} \\
+Gradient Boosting & 60.7 & 68.3 & +7.6pp \\
+LightGBM          & 65.3 & 70.7 & +5.4pp \\
+CatBoost          & 71.3 & 72.5 & +1.2pp \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+XGBoost benefits most from tuning (+11.5pp), confirming that its default hyperparameters are poorly suited for this task. CatBoost improves only marginally (+1.2pp), indicating near-optimal defaults. Post-tuning, the top three models converge to 71--72.5\%, suggesting a performance ceiling for this feature set.
+
+\subsection{Detailed Analysis: ROC and Confusion Matrices}
+\label{subsec:detailed}
+
+CatBoost achieves the highest AUC (0.764), followed by Random Forest (0.740) and XGBoost (0.738). Confusion matrix analysis reveals that CatBoost exhibits the most balanced class predictions (81 true positives for the DOWN class), while Gradient Boosting is severely biased toward DOWN predictions (186 total DOWN predictions out of $\sim$210 observations).
+
+\subsection{Window Effect}
+\label{subsec:window}
+
+\begin{table}[H]
+\centering
+\caption{Average accuracy (\%) by trading window across 25 stocks (Purged K-Fold, tuned).}
+\label{tab:window}
+\begin{tabular}{lccccc}
+\toprule
+\textbf{Window} & \textbf{RF} & \textbf{XGBoost} & \textbf{GB} & \textbf{LightGBM} & \textbf{CatBoost} \\
+\midrule
+1 day   & 66.3 & 65.9 & 65.4 & 63.8 & \textbf{66.7} \\
+2 days  & 63.8 & 63.0 & 62.9 & 61.1 & \textbf{64.4} \\
+5 days  & 57.6 & 56.5 & 56.9 & 54.7 & \textbf{57.7} \\
+10 days & \textbf{53.6} & 52.4 & 53.2 & 52.3 & 53.5 \\
+15 days & 51.7 & 51.7 & 51.3 & \textbf{51.8} & 51.7 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+ANOVA tests confirm highly significant window effects ($p < 0.0001$) for all models. Accuracy drops approximately 15 percentage points from the 1-day to the 15-day horizon, with the steepest decline between 5 and 10~days. At 15~days, all models converge to $\sim$51.5\%, effectively random.
+
+\subsection{Sector Analysis}
+\label{subsec:sector}
+
+\begin{table}[H]
+\centering
+\caption{Best model accuracy (\%) by sector (averaged across all windows).}
+\label{tab:sector}
+\begin{tabular}{lll}
+\toprule
+\textbf{Sector} & \textbf{Best Model} & \textbf{Accuracy (\%)} \\
+\midrule
+Healthcare  & CatBoost & \textbf{61.3} \\
+Automotive  & CatBoost & 60.1 \\
+Consumer    & Random Forest & 58.9 \\
+Technology  & CatBoost & 58.1 \\
+Financial   & Random Forest & 56.3 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Healthcare is the most predictable sector, while Financial is the hardest---consistent with the hypothesis that heavily traded financial stocks leave less exploitable signal. The inter-sector spread is modest ($\sim$5pp), suggesting that technical indicators capture market microstructure patterns that are largely sector-agnostic.
+
+\subsection{Stacking Ensemble}
+\label{subsec:stacking}
+
+\begin{table}[H]
+\centering
+\caption{Stacking vs individual models (AAPL, 1-day, Purged K-Fold).}
+\label{tab:stacking}
+\begin{tabular}{lcc}
+\toprule
+\textbf{Model} & \textbf{Accuracy (\%)} & \textbf{AUC} \\
+\midrule
+Gradient Boosting & 68.32 & 0.7235 \\
+LightGBM          & 70.68 & 0.7113 \\
+Random Forest     & 71.73 & 0.7519 \\
+XGBoost           & 71.73 & 0.7597 \\
+CatBoost          & 72.46 & \textbf{0.7663} \\
+\midrule
+Stacking (4 models + LR) & \textbf{73.19 $\pm$ 2.01} & 0.7456 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The stacking ensemble achieves the highest accuracy (73.19\%), surpassing CatBoost by 0.73pp, despite excluding CatBoost from the base learners due to scikit-learn compatibility constraints. However, CatBoost retains a higher AUC (0.7663 vs 0.7456), indicating better probability calibration.
+
+\subsection{SHAP Analysis}
+\label{subsec:shap_results}
+
+SHAP analysis reveals that \textbf{RSI is the dominant feature} across all models, contributing 29.0\% (RF) to 48.1\% (CatBoost) of total SHAP importance. ATR is the most universally informative feature, with near-identical importance ($\sim$13.5--14.2\%) across all five models.
+
+The SHAP dependence plot for CatBoost reveals a clear sigmoid relationship between RSI and predictions: RSI~$<$~45 produces strong negative SHAP values ($\sim$$-$0.4, predicting DOWN), while RSI~$>$~65 produces strong positive values ($\sim$+0.4, predicting UP). The transition zone around RSI~50--60 is where the model is most uncertain.
+
+PROC exhibits an asymmetric linear dependence: negative momentum is weighted more heavily ($-$0.15) than positive momentum (+0.10), suggesting the model is more sensitive to price declines. ATR shows a non-linear U-shaped pattern---low volatility favors UP predictions, while high volatility favors DOWN---consistent with the leverage effect in financial markets.
+
+% ============================================================================
+\section{Comparison with Basak et al.~(2019)}
+\label{sec:comparison}
+
+\begin{table}[H]
+\centering
+\caption{Methodological comparison with the original paper.}
+\label{tab:comparison}
+\begin{tabular}{p{3.5cm}p{4.5cm}p{5cm}}
+\toprule
+\textbf{Aspect} & \textbf{Basak et al. (2019)} & \textbf{Our Study} \\
+\midrule
+Validation & Random train/test split & \textbf{Purged K-Fold} (5 folds, 1\% embargo) \\
+Best accuracy & 70--95\% & \textbf{66--73\%} (1-day, Purged K-Fold) \\
+Features & 6 indicators & \textbf{14 $\to$ 10} (Boruta selection) \\
+Best model & Random Forest & \textbf{CatBoost} (marginal over RF) \\
+Smoothing & Applied to features & \textbf{Only for labels} \\
+Accuracy vs window & Increases (65\% $\to$ 93\%) & \textbf{Decreases} (67\% $\to$ 52\%) \\
+Class imbalance & Not addressed & Balanced weights / sample weights \\
+Statistical tests & None & ANOVA + Tukey HSD \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The most striking difference is the \emph{direction} of the window effect. \citet{basak2019} report accuracy increasing from 65\% (3-day) to 93\% (90-day), while our properly validated results show accuracy \emph{decreasing} from 67\% (1-day) to 52\% (15-day). The increasing pattern in the original paper is a hallmark of data leakage: longer windows create more overlapping labels, and random splitting allows the model to exploit this overlap. Our decreasing pattern is consistent with financial theory---technical indicators capture short-term momentum that dissipates over time.
+
+% ============================================================================
+\section{Conclusion}
+\label{sec:conclusion}
+
+This study demonstrates that tree-based classifiers can predict stock price direction above random chance, but \textbf{realistic expectations must be set}. With proper Purged K-Fold validation:
+
+\begin{itemize}[itemsep=2pt]
+    \item The best achievable accuracy on a single stock (AAPL, 1-day) is $\sim$\textbf{73\%} (Stacking) or $\sim$\textbf{72.5\%} (CatBoost), not the 80--95\% often reported.
+    \item Averaged across 25 stocks and 5 windows, accuracy is $\sim$\textbf{58--59\%}---a modest but consistent edge.
+    \item Beyond 5-day horizons, all models converge toward random chance ($\sim$51\%).
+\end{itemize}
+
+The key takeaway is that \textbf{validation methodology matters more than model choice}. Fixing data leakage (Standard~$\to$~Purged K-Fold) impacts reported accuracy by $-$15--30pp, while switching between tree-based algorithms changes accuracy by $\pm$3pp, and hyperparameter tuning adds +1--12pp.
+
+\subsection{Limitations}
+\begin{enumerate}[itemsep=2pt]
+    \item \textbf{Feature set}: Only technical indicators; alternative data (sentiment, fundamentals, macroeconomic) could improve performance.
+    \item \textbf{Market conditions}: The 2020--2024 period includes unique conditions (COVID recovery, AI boom) that may limit generalizability.
+    \item \textbf{Transaction costs}: Not accounted for; real trading profitability would be lower.
+    \item \textbf{Single-stock tuning}: Hyperparameters optimized on AAPL only.
+\end{enumerate}
+
+\subsection{Future Work}
+Promising directions include: regime-aware models adapting to bull/bear markets, walk-forward backtesting with transaction costs, alternative data integration (news sentiment, social media), and per-stock hyperparameter optimization.
+
+% ============================================================================
+\bibliographystyle{plainnat}
+
+\begin{thebibliography}{99}
+
+\bibitem[Akiba et~al.(2019)]{akiba2019}
+Akiba, T., Sano, S., Yanase, T., Ohta, T., \& Koyama, M. (2019).
+\newblock Optuna: A Next-generation Hyperparameter Optimization Framework.
+\newblock \textit{Proceedings of the 25th ACM SIGKDD}, 2623--2631.
+
+\bibitem[Appel(2005)]{appel2005}
+Appel, G. (2005).
+\newblock \textit{Technical Analysis: Power Tools for Active Investors}.
+\newblock FT Press.
+
+\bibitem[Basak et~al.(2019)]{basak2019}
+Basak, S., Kar, S., Saha, S., Khaidem, L., \& Dey, S.~R. (2019).
+\newblock Predicting the direction of stock market prices using tree-based classifiers.
+\newblock \textit{North American Journal of Economics and Finance}, 47, 552--567.
+
+\bibitem[Breiman(2001)]{breiman2001}
+Breiman, L. (2001).
+\newblock Random Forests.
+\newblock \textit{Machine Learning}, 45(1), 5--32.
+
+\bibitem[Chen \& Guestrin(2016)]{chen2016}
+Chen, T. \& Guestrin, C. (2016).
+\newblock XGBoost: A Scalable Tree Boosting System.
+\newblock \textit{Proceedings of the 22nd ACM SIGKDD}, 785--794.
+
+\bibitem[Donoho \& Johnstone(1994)]{donoho1994}
+Donoho, D.~L. \& Johnstone, I.~M. (1994).
+\newblock Ideal spatial adaptation by wavelet shrinkage.
+\newblock \textit{Biometrika}, 81(3), 425--455.
+
+\bibitem[Fama(1970)]{fama1970}
+Fama, E.~F. (1970).
+\newblock Efficient Capital Markets: A Review of Theory and Empirical Work.
+\newblock \textit{The Journal of Finance}, 25(2), 383--417.
+
+\bibitem[Friedman(2001)]{friedman2001}
+Friedman, J.~H. (2001).
+\newblock Greedy function approximation: A gradient boosting machine.
+\newblock \textit{Annals of Statistics}, 29(5), 1189--1232.
+
+\bibitem[Ke et~al.(2017)]{ke2017}
+Ke, G., Meng, Q., Finley, T., et~al. (2017).
+\newblock LightGBM: A Highly Efficient Gradient Boosting Decision Tree.
+\newblock \textit{Advances in Neural Information Processing Systems}, 30.
+
+\bibitem[Kursa \& Rudnicki(2010)]{kursa2010}
+Kursa, M.~B. \& Rudnicki, W.~R. (2010).
+\newblock Feature Selection with the Boruta Package.
+\newblock \textit{Journal of Statistical Software}, 36(11).
+
+\bibitem[Lopez de Prado(2018)]{lopez2018}
+Lopez de Prado, M. (2018).
+\newblock \textit{Advances in Financial Machine Learning}.
+\newblock Wiley. Chapter 7: Cross-Validation in Finance.
+
+\bibitem[Lundberg \& Lee(2017)]{lundberg2017}
+Lundberg, S.~M. \& Lee, S.-I. (2017).
+\newblock A Unified Approach to Interpreting Model Predictions.
+\newblock \textit{Advances in Neural Information Processing Systems}, 30.
+
+\bibitem[Prokhorenkova et~al.(2018)]{prokhorenkova2018}
+Prokhorenkova, L., Gusev, G., Vorobev, A., Dorogush, A.~V., \& Gulin, A. (2018).
+\newblock CatBoost: unbiased boosting with categorical features.
+\newblock \textit{Advances in Neural Information Processing Systems}, 31.
+
+\bibitem[Savitzky \& Golay(1964)]{savitzky1964}
+Savitzky, A. \& Golay, M.~J.~E. (1964).
+\newblock Smoothing and Differentiation of Data by Simplified Least Squares Procedures.
+\newblock \textit{Analytical Chemistry}, 36(8), 1627--1639.
+
+\bibitem[Wilder(1978)]{wilder1978}
+Wilder, J.~W. (1978).
+\newblock \textit{New Concepts in Technical Trading Systems}.
+\newblock Trend Research.
+
+\bibitem[Wolpert(1992)]{wolpert1992}
+Wolpert, D.~H. (1992).
+\newblock Stacked generalization.
+\newblock \textit{Neural Networks}, 5(2), 241--259.
+
+\end{thebibliography}
+
+\end{document}
