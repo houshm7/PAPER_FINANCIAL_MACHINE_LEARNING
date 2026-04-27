@@ -1,17 +1,34 @@
 """Preprocessing pipeline: smoothing methods, label creation, feature preparation.
 
-Smoothing methods available:
-  - "exponential" : Basak et al. (2019) — exponential smoothing (α=0.095)
-  - "wavelet"     : Wavelet denoising (DWT with soft thresholding)
-  - "savgol"      : Savitzky-Golay filter (local polynomial fitting)
-  - "none"        : No smoothing (raw prices)
+Label modes
+-----------
+The main research pipeline now defaults to ``label_mode="raw_return"``: the
+binary direction label is the sign of the *raw* h-day forward price change
+``P_{t+h} - P_t``. Raw returns are causal — the label at time ``t`` depends
+only on ``{P_t, P_{t+h}}`` and never on prices after ``t+h``.
 
-Key improvement over Basak et al.:
-  - Indicators are computed on RAW data (they have their own internal smoothing)
-  - Smoothing is applied ONLY to the Close price for label creation
-  - This avoids double-smoothing and preserves indicator sensitivity
+Smoothed-label modes are retained as robustness checks only:
+
+- ``"exponential"`` — Basak et al. (2019) exponential smoothing (α=0.095).
+  Causal but introduces lag; not equivalent to the raw label.
+- ``"wavelet"`` — DWT denoising (Daubechies-4 by default). **Non-causal**:
+  the implementation here uses a global ``pywt.wavedec`` over the full
+  series, so smoothed prices at time ``t`` depend on prices ``> t``.
+  Reported only as a robustness check; not for headline numbers.
+- ``"savgol"`` — Savitzky-Golay centred polynomial filter. **Non-causal**.
+- ``"none"`` — alias for ``"raw_return"`` (no smoothing).
+
+For backward compatibility every API still accepts the legacy
+``smoothing_method=`` parameter; when both are passed, ``label_mode`` wins.
+
+Key improvement over Basak et al. (2019)
+----------------------------------------
+- Indicators are computed on RAW data (they have their own internal smoothing).
+- Smoothing — when used at all — is applied ONLY to the Close price used
+  for label construction; features are never smoothed.
 """
 
+import warnings
 import numpy as np
 import pandas as pd
 import pywt
@@ -20,8 +37,39 @@ from scipy.signal import savgol_filter as _savgol_filter
 from .config import CONFIG, FEATURE_COLS, ORIGINAL_FEATURE_COLS, EXTENDED_FEATURE_COLS, CHANGE_FEATURE_COLS
 from .indicators import calculate_all_indicators
 
-# Available smoothing methods
+# Available smoothing methods (legacy "smoothing_method" parameter values)
 SMOOTHING_METHODS = ["exponential", "wavelet", "savgol", "none"]
+
+# Canonical label-construction modes. ``raw_return`` and ``none`` are
+# equivalent; both skip smoothing and use raw forward returns for the sign.
+LABEL_MODES = ["raw_return", "wavelet", "exponential", "savgol", "none"]
+DEFAULT_LABEL_MODE = "raw_return"
+
+
+def _resolve_label_mode(label_mode, smoothing_method):
+    """Map (label_mode, smoothing_method) to a single smoothing method string.
+
+    Precedence:
+      - explicit ``smoothing_method`` (legacy callers) wins.
+      - otherwise ``label_mode`` is used; ``"raw_return"`` and ``"none"``
+        both resolve to ``"none"``.
+    """
+    if smoothing_method is not None:
+        if smoothing_method not in SMOOTHING_METHODS:
+            raise ValueError(
+                f"Unknown smoothing_method {smoothing_method!r}. "
+                f"Choose from {SMOOTHING_METHODS}."
+            )
+        return smoothing_method
+    if label_mode is None:
+        label_mode = DEFAULT_LABEL_MODE
+    if label_mode not in LABEL_MODES:
+        raise ValueError(
+            f"Unknown label_mode {label_mode!r}. Choose from {LABEL_MODES}."
+        )
+    if label_mode in ("raw_return", "none"):
+        return "none"
+    return label_mode
 
 
 # ---------------------------------------------------------------------------
@@ -192,21 +240,45 @@ def compute_noise_reduction(original, smoothed):
 # ---------------------------------------------------------------------------
 
 def create_target_labels(prices, window):
-    """Create binary labels: +1 if price goes up over *window* days, else -1.
+    """Create binary direction labels with explicit NaN at the boundary.
+
+    For each row ``t``, the label is
+
+    - ``+1`` if ``prices[t+window] > prices[t]``,
+    - ``-1`` if ``prices[t+window] <= prices[t]`` (ties → DOWN, kept for
+      backward compatibility),
+    - ``NaN`` for the last ``window`` rows where ``prices[t+window]`` is
+      not observed.
+
+    The previous implementation used ``np.where(price_change > 0, 1, -1)``
+    which silently mapped the ``NaN`` future-price comparison to ``-1``,
+    inflating the DOWN class and contaminating the panel with degenerate
+    labels. Callers should now drop the trailing ``NaN`` rows (this is
+    handled automatically by :func:`prepare_features`).
 
     Parameters
     ----------
     prices : pd.Series
+        Reference price series (e.g. raw close, or a smoothed variant
+        depending on ``label_mode``). Indexed by the trading-day calendar.
     window : int
+        Forecasting horizon in rows.
 
     Returns
     -------
     pd.Series
+        Float64 series indexed identically to ``prices``; values in
+        ``{+1, -1, NaN}``.
     """
     future_price = prices.shift(-window)
     price_change = future_price - prices
-    labels = np.where(price_change > 0, 1, -1)
-    return pd.Series(labels, index=prices.index)
+
+    labels = pd.Series(np.nan, index=prices.index, dtype="float64")
+    valid = price_change.notna()
+    # Tie semantics preserved: price_change == 0 → -1.
+    labels.loc[valid & (price_change > 0)] = 1.0
+    labels.loc[valid & (price_change <= 0)] = -1.0
+    return labels
 
 
 # ---------------------------------------------------------------------------
@@ -245,37 +317,57 @@ def add_change_features(df_indicators, base_cols=None):
 # ---------------------------------------------------------------------------
 
 def prepare_features(df, window, config=None, feature_cols=None, extended=True,
-                     smoothing_method="wavelet", include_changes=False):
-    """Full preprocessing pipeline (improved).
+                     label_mode=DEFAULT_LABEL_MODE, include_changes=False,
+                     smoothing_method=None):
+    """Full preprocessing pipeline.
 
-    Key difference from Basak et al. (2019):
-      - Indicators are computed on RAW data (no double-smoothing)
-      - Smoothing is applied ONLY to Close price for label creation
-
-    Steps:
-      1. Technical indicators on RAW data
-      2. (Optional) Add 1-day change features for each indicator
-      3. Smoothing on Close price (for labels only)
-      4. Binary target labels from smoothed Close
-      5. Drop NaN rows
+    Pipeline
+    --------
+    1. Compute technical indicators on RAW OHLCV (no double-smoothing).
+    2. Optionally append Δ features for each indicator.
+    3. Resolve ``label_mode`` (default ``"raw_return"``); apply the chosen
+       smoothing operator to ``df["Close"]`` *only* for label construction.
+    4. Build binary direction labels via :func:`create_target_labels`. The
+       last ``window`` rows are ``NaN`` because ``P_{t+h}`` is unobserved.
+    5. Drop NaN rows. Indicator warm-up rows and the trailing
+       label-NaN rows are removed in this single step, so ``X`` and ``y``
+       share the same index by construction.
 
     Parameters
     ----------
-    df : pd.DataFrame — raw OHLCV data.
-    window : int — trading window in days.
+    df : pd.DataFrame
+        Raw OHLCV data indexed by trading day.
+    window : int
+        Forecasting horizon in trading days (``h``).
     config : dict, optional
-    feature_cols : list[str], optional — override feature columns.
-    extended : bool — if True, compute all 14 indicators; if False, only original 6.
-    smoothing_method : str — "exponential", "wavelet", "savgol", or "none".
-    include_changes : bool — if True, append Δ features (1-day change per indicator).
+    feature_cols : list[str], optional
+        Override the feature columns. If unset, ``EXTENDED_FEATURE_COLS``
+        (or ``ORIGINAL_FEATURE_COLS`` when ``extended=False``) is used,
+        plus Δ features when ``include_changes=True``.
+    extended : bool
+        If ``True``, compute all 14 indicators; if ``False``, only the
+        six original Basak et al. (2019) indicators.
+    label_mode : str
+        One of ``LABEL_MODES``. Default is ``"raw_return"`` (the only
+        causal label construction). Smoothed alternatives are retained
+        for robustness.
+    include_changes : bool
+        If ``True``, append Δ features (1-day change per indicator).
+    smoothing_method : str, optional
+        Deprecated alias for ``label_mode``. When provided, takes
+        precedence over ``label_mode`` for backward compatibility.
 
     Returns
     -------
-    X : pd.DataFrame — feature matrix.
-    y : pd.Series    — target labels (+1 / -1).
+    X : pd.DataFrame
+        Feature matrix.
+    y : pd.Series
+        Target labels (+1 / -1) sharing ``X``'s index.
     """
     if config is None:
         config = CONFIG
+
+    effective_smoothing = _resolve_label_mode(label_mode, smoothing_method)
 
     base_cols = EXTENDED_FEATURE_COLS if extended else ORIGINAL_FEATURE_COLS
 
@@ -298,13 +390,15 @@ def prepare_features(df, window, config=None, feature_cols=None, extended=True,
     else:
         use_cols = base_cols
 
-    # Step 3: Smoothing on Close ONLY for label creation
-    smoothed_close = apply_smoothing(df["Close"], method=smoothing_method, config=config)
+    # Step 3: Smoothing on Close ONLY for label creation. ``"none"`` is the
+    # raw-return path: the smoothing helper returns a copy of the input.
+    smoothed_close = apply_smoothing(df["Close"], method=effective_smoothing, config=config)
 
-    # Step 4: Labels from smoothed Close
+    # Step 4: Labels (last ``window`` rows are NaN by construction)
     labels = create_target_labels(smoothed_close, window)
 
-    # Step 5: Combine and drop NaN
+    # Step 5: Combine and drop NaN. Both indicator warm-up rows and the
+    # trailing label-NaN rows disappear here, so X.index == y.index.
     df_features = df_indicators[use_cols].copy()
     df_features["target"] = labels
     df_features = df_features.dropna()
@@ -317,8 +411,28 @@ def prepare_features(df, window, config=None, feature_cols=None, extended=True,
 def prepare_features_basak(df, window, config=None, feature_cols=None, extended=False):
     """Original Basak et al. (2019) pipeline — for comparison only.
 
-    Smoothing is applied BEFORE indicators (double-smoothing).
-    Uses original 6 features by default.
+    Smoothing is applied BEFORE indicators (double-smoothing). Uses the
+    original six features by default. Kept for reproducing the Basak
+    baseline; the main pipeline is :func:`prepare_features` with
+    ``label_mode="raw_return"``.
+
+    Behavioural note (post label-fix)
+    ---------------------------------
+    Since :func:`create_target_labels` was made NaN-aware, this function
+    *also* drops the trailing ``window`` rows that previously carried
+    fabricated DOWN labels (the ``np.where(NaN > 0, ...) → -1`` bug).
+    The returned ``X`` and ``y`` are now strictly causal: every retained
+    row has an observed ``P_{t+h}``. Saved Basak-baseline accuracy
+    numbers from before the fix are therefore not directly comparable
+    — they were averaged over a panel that included ``window`` extra
+    synthetic-DOWN rows per stock. Re-derive any cited Basak figure
+    when the notebook is rerun.
+
+    Smoothing here remains causal: ``exponential_smoothing`` only uses
+    past values. So the Basak comparison is still leakage-free with
+    respect to the smoothing operator (only the double-smoothing of
+    indicators is in question, which is the original design choice
+    being benchmarked against).
 
     Returns
     -------
@@ -335,6 +449,8 @@ def prepare_features_basak(df, window, config=None, feature_cols=None, extended=
     df_smoothed["Close"] = exponential_smoothing(df["Close"], alpha=config["alpha"])
 
     df_indicators = calculate_all_indicators(df_smoothed, config, extended=extended)
+    # ``create_target_labels`` now returns NaN for the last ``window`` rows;
+    # the ``dropna`` below removes them along with indicator warm-up rows.
     labels = create_target_labels(df_smoothed["Close"], window)
 
     df_features = df_indicators[feature_cols].copy()
@@ -347,14 +463,30 @@ def prepare_features_basak(df, window, config=None, feature_cols=None, extended=
 
 
 def prepare_features_with_t1(df, window, config=None, feature_cols=None, extended=True,
-                              smoothing_method="wavelet", include_changes=False):
-    """Preprocessing pipeline extended with t1 series for Purged K-Fold CV.
+                              label_mode=DEFAULT_LABEL_MODE, include_changes=False,
+                              smoothing_method=None):
+    """Preprocessing pipeline extended with the ``t1`` series for Purged K-Fold CV.
+
+    ``t1[i]`` is the calendar timestamp at which the label for observation
+    ``X.iloc[i]`` is *fully formed* — that is, the timestamp of
+    ``P_{t+h}``. It is taken from the **original** ``df.index`` so it
+    remains correct even though :func:`prepare_features` drops the last
+    ``window`` rows when forming ``X`` and ``y``.
+
+    The previous implementation built ``t1`` against the cleaned
+    ``X.index`` and capped overruns with ``np.minimum`` (audit C-5),
+    which collapsed the last ``window`` ``t1`` values to a single
+    boundary timestamp. With the NaN-aware label fix that capping is no
+    longer needed: every retained row has a real ``t+h`` timestamp in
+    ``df.index``.
 
     Returns
     -------
     X : pd.DataFrame
     y : pd.Series
-    t1 : pd.Series — maps each observation index to its label end time.
+    t1 : pd.Series
+        Indexed identically to ``X``; values are timestamps drawn from
+        the original ``df.index``.
     """
     if config is None:
         config = CONFIG
@@ -362,11 +494,26 @@ def prepare_features_with_t1(df, window, config=None, feature_cols=None, extende
     X, y = prepare_features(
         df, window, config,
         feature_cols=feature_cols, extended=extended,
-        smoothing_method=smoothing_method,
+        label_mode=label_mode,
         include_changes=include_changes,
+        smoothing_method=smoothing_method,
     )
 
-    end_positions = np.minimum(np.arange(len(X.index)) + window, len(X.index) - 1)
-    t1 = pd.Series(X.index[end_positions], index=X.index)
-
+    full_index = pd.Index(df.index)
+    pos = full_index.get_indexer(X.index)
+    if (pos < 0).any():
+        # Should not happen — X.index is always a subset of df.index.
+        raise RuntimeError(
+            "prepare_features_with_t1: X.index is not a subset of df.index; "
+            "cannot resolve t1 timestamps."
+        )
+    end_pos = pos + window
+    if end_pos.max() >= len(full_index):
+        # Should not happen — the trailing NaN labels were dropped in
+        # prepare_features, so every retained row has t+h in df.index.
+        raise RuntimeError(
+            "prepare_features_with_t1: t1 lookup overran df.index. "
+            "Check that create_target_labels still NaNs the last `window` rows."
+        )
+    t1 = pd.Series(full_index[end_pos], index=X.index)
     return X, y, t1
