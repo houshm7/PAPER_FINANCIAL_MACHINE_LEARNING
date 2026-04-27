@@ -411,8 +411,28 @@ def prepare_features(df, window, config=None, feature_cols=None, extended=True,
 def prepare_features_basak(df, window, config=None, feature_cols=None, extended=False):
     """Original Basak et al. (2019) pipeline — for comparison only.
 
-    Smoothing is applied BEFORE indicators (double-smoothing).
-    Uses original 6 features by default.
+    Smoothing is applied BEFORE indicators (double-smoothing). Uses the
+    original six features by default. Kept for reproducing the Basak
+    baseline; the main pipeline is :func:`prepare_features` with
+    ``label_mode="raw_return"``.
+
+    Behavioural note (post label-fix)
+    ---------------------------------
+    Since :func:`create_target_labels` was made NaN-aware, this function
+    *also* drops the trailing ``window`` rows that previously carried
+    fabricated DOWN labels (the ``np.where(NaN > 0, ...) → -1`` bug).
+    The returned ``X`` and ``y`` are now strictly causal: every retained
+    row has an observed ``P_{t+h}``. Saved Basak-baseline accuracy
+    numbers from before the fix are therefore not directly comparable
+    — they were averaged over a panel that included ``window`` extra
+    synthetic-DOWN rows per stock. Re-derive any cited Basak figure
+    when the notebook is rerun.
+
+    Smoothing here remains causal: ``exponential_smoothing`` only uses
+    past values. So the Basak comparison is still leakage-free with
+    respect to the smoothing operator (only the double-smoothing of
+    indicators is in question, which is the original design choice
+    being benchmarked against).
 
     Returns
     -------
@@ -429,6 +449,8 @@ def prepare_features_basak(df, window, config=None, feature_cols=None, extended=
     df_smoothed["Close"] = exponential_smoothing(df["Close"], alpha=config["alpha"])
 
     df_indicators = calculate_all_indicators(df_smoothed, config, extended=extended)
+    # ``create_target_labels`` now returns NaN for the last ``window`` rows;
+    # the ``dropna`` below removes them along with indicator warm-up rows.
     labels = create_target_labels(df_smoothed["Close"], window)
 
     df_features = df_indicators[feature_cols].copy()

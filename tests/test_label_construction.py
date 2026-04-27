@@ -182,20 +182,29 @@ def test_raw_labels_do_not_use_future_smoothing() -> None:
     assert labels_b.iloc[-h:].isna().all()
 
 
-def test_wavelet_labels_DO_use_future_smoothing() -> None:
+@pytest.mark.parametrize("seed", [2, 7, 13, 21, 42])
+def test_wavelet_labels_DO_use_future_smoothing(seed: int) -> None:
     """Negative control: with ``label_mode="wavelet"`` the same disturbance
     far in the future *does* change earlier labels, because
-    ``pywt.wavedec`` is non-causal. This test documents the leakage and
-    will fail if wavelet smoothing is ever made causal — at which point
-    the assertion can be flipped or the test deleted.
+    ``pywt.wavedec`` is non-causal.
+
+    R-8: parametrised over five independent seeds so a single unlucky
+    synthetic series cannot mask the leakage signature. With a global
+    DWT, *any* large tail perturbation must propagate back to past
+    smoothed coefficients; if the test passes with ``diff_count == 0``
+    on every seed, the wavelet implementation has become causal and
+    the audit's C-1 is resolved (at which point flip or delete this
+    test).
     """
-    df_a = _make_ohlcv(n=200, seed=2)
+    df_a = _make_ohlcv(n=200, seed=seed)
     df_b = df_a.copy()
-    df_b.loc[df_b.index[-30:], "Close"] = df_a["Close"].iloc[-30] * 0.1  # large tail shock
+    # Two-sided tail perturbation: a structural break that any
+    # non-causal smoother is guaranteed to bleed into earlier coefficients.
+    df_b.loc[df_b.index[-30:], "Close"] = df_a["Close"].iloc[-30] * 0.1
 
     h = 5
-    Xa, ya = prepare_features(df_a, window=h, label_mode="wavelet", include_changes=False)
-    Xb, yb = prepare_features(df_b, window=h, label_mode="wavelet", include_changes=False)
+    _, ya = prepare_features(df_a, window=h, label_mode="wavelet", include_changes=False)
+    _, yb = prepare_features(df_b, window=h, label_mode="wavelet", include_changes=False)
 
     common = ya.index.intersection(yb.index)
     # Restrict to dates well before the shock so any difference is a pure
@@ -203,9 +212,10 @@ def test_wavelet_labels_DO_use_future_smoothing() -> None:
     safe_dates = common[common < df_a.index[-50]]
     diff_count = int((ya.loc[safe_dates] != yb.loc[safe_dates]).sum())
     assert diff_count > 0, (
-        "wavelet labels were expected to differ on dates BEFORE the future "
-        "shock — if this test starts passing with diff_count == 0 the "
-        "wavelet implementation may have become causal; revisit C-1."
+        f"seed={seed}: wavelet labels were expected to differ on dates "
+        f"BEFORE the future shock. If this assertion starts failing across "
+        f"every parametrised seed, the wavelet implementation may have "
+        f"become causal; revisit audit C-1."
     )
 
 
