@@ -8,5 +8,245 @@
     "start_date": "2020-01-01",
     "ticker": "AAPL",
     "yfinance_version": "1.1.0"
+  },
+  "ABBV_2020-01-01_2024-12-31": {
+    "end_date": "2024-12-31",
+    "first_date": "2020-01-02",
+    "last_date": "2024-12-30",
+    "n_rows": 1257,
+    "saved_utc": "2026-05-03T13:33:41.556452+00:00",
+    "start_date": "2020-01-01",
+    "ticker": "ABBV",
+    "yfinance_version": "1.1.0"
+  },
+  "BAC_2020-01-01_2024-12-31": {
+    "end_date": "2024-12-31",
+    "first_date": "2020-01-02",
+    "last_date": "2024-12-30",
+    "n_rows": 1257,
+    "saved_utc": "2026-05-03T13:33:40.069552+00:00",
+    "start_date": "2020-01-01",
+    "ticker": "BAC",
+    "yfinance_version": "1.1.0"
+  },
+  "C_2020-01-01_2024-12-31": {
+    "end_date": "2024-12-31",
+    "first_date": "2020-01-02",
+    "last_date": "2024-12-30",
+    "n_rows": 1257,
+    "saved_utc": "2026-05-03T13:33:40.614817+00:00",
+    "start_date": "2020-01-01",
+    "ticker": "C",
+    "yfinance_version": "1.1.0"
+  },
+  "DIS_2020-01-01_2024-12-31": {
+    "end_date": "2024-12-31",
+    "first_date": "2020-01-02",
+    "last_date": "2024-12-30",
+    "n_rows": 1257,
+    "saved_utc": "2026-05-03T13:33:39.565089+00:00",
+    "start_date": "2020-01-01",
+    "ticker": "DIS",
+    "yfinance_version": "1.1.0"
+  },
+  "F_2020-01-01_2024-12-31": {
+    "end_date": "2024-12-31",
+    "first_date": "2020-01-02",
+    "last_date": "2024-12-30",
+    "n_rows": 1257,
+    "saved_utc": "2026-05-03T13:33:38.091611+00:00",
+    "start_date": "2020-01-01",
+    "ticker": "F",
+    "yfinance_version": "1.1.0"
+  },
+  "GM_2020-01-01_2024-12-31": {
+    "end_date": "2024-12-31",
+    "first_date": "2020-01-02",
+    "last_date": "2024-12-30",
+    "n_rows": 1257,
+    "saved_utc": "2026-05-03T13:33:38.247360+00:00",
+    "start_date": "2020-01-01",
+    "ticker": "GM",
+    "yfinance_version": "1.1.0"
+  },
+  "GOOGL_2020-01-01_2024-12-31": {
+    "end_date": "2024-12-31",
+    "first_date": "2020-01-02",
+    "last_date": "2024-12-30",
+    "n_rows": 1257,
+    "saved_utc": "2026-05-03T13:33:37.399901+00:00",
+    "start_date": "2020-01-01",
+    "ticker": "GOOGL",
+    "yfinance_version": "1.1.0"
+  },
+  "GS_2020-01-01_2024-12-31": {
+    "end_date": "2024-12-31",
+    "first_date": "2020-01-02",
+    "last_date": "2024-12-30",
+    "n_rows": 1257,
+    "saved_utc": "2026-05-03T13:33:40.241804+00:00",
+    "start_date": "2020-01-01",
+    "ticker": "GS",
+    "yfinance_version": "1.1.0"
+  },
+  "HMC_2020-01-01_2024-12-31": {
+    "end_date": "2024-12-31",
+    "first_date": "2020-01-02",
+    "last_date": "2024-12-30",
+    "n_rows": 1257,
+    "saved_utc": "2026-05-03T13:33:38.595554+00:00",
+    "start_date": "2020-01-01",
+    "ticker": "HMC",
+    "yfinance_version": "1.1.0"
+  },
+  "JNJ_2020-01-01_2024-12-31": {
+    "end_date": "2024-12-31",
+    "first_date": "2020-01-02",
+    "last_date": "2024-12-30",
+    "n_rows": 1257,
+    "saved_utc": "2026-05-03T13:33:40.885118+00:00",
+    "start_date": "2020-01-01",
+    "ticker": "JNJ",
+    "yfinance_version": "1.1.0"
+  },
+  "JPM_2020-01-01_2024-12-31": {
+    "end_date": "2024-12-31",
+    "first_date": "2020-01-02",
+    "last_date": "2024-12-30",
+    "n_rows": 1257,
+    "saved_utc": "2026-05-03T13:33:39.873882+00:00",
+    "start_date": "2020-01-01",
+    "ticker": "JPM",
+    "yfinance_version": "1.1.0"
+  },
+  "MCD_2020-01-01_2024-12-31": {
+    "end_date": "2024-12-31",
+    "first_date": "2020-01-02",
+    "last_date": "2024-12-30",
+    "n_rows": 1257,
+    "saved_utc": "2026-05-03T13:33:39.277750+00:00",
+    "start_date": "2020-01-01",
+    "ticker": "MCD",
+    "yfinance_version": "1.1.0"
+  },
+  "META_2020-01-01_2024-12-31": {
+    "end_date": "2024-12-31",
+    "first_date": "2020-01-02",
+    "last_date": "2024-12-30",
+    "n_rows": 1257,
+    "saved_utc": "2026-05-03T13:33:37.739866+00:00",
+    "start_date": "2020-01-01",
+    "ticker": "META",
+    "yfinance_version": "1.1.0"
+  },
+  "MSFT_2020-01-01_2024-12-31": {
+    "end_date": "2024-12-31",
+    "first_date": "2020-01-02",
+    "last_date": "2024-12-30",
+    "n_rows": 1257,
+    "saved_utc": "2026-05-03T13:33:37.219728+00:00",
+    "start_date": "2020-01-01",
+    "ticker": "MSFT",
+    "yfinance_version": "1.1.0"
+  },
+  "MS_2020-01-01_2024-12-31": {
+    "end_date": "2024-12-31",
+    "first_date": "2020-01-02",
+    "last_date": "2024-12-30",
+    "n_rows": 1257,
+    "saved_utc": "2026-05-03T13:33:40.411826+00:00",
+    "start_date": "2020-01-01",
+    "ticker": "MS",
+    "yfinance_version": "1.1.0"
+  },
+  "NFLX_2020-01-01_2024-12-31": {
+    "end_date": "2024-12-31",
+    "first_date": "2020-01-02",
+    "last_date": "2024-12-30",
+    "n_rows": 1257,
+    "saved_utc": "2026-05-03T13:33:39.697718+00:00",
+    "start_date": "2020-01-01",
+    "ticker": "NFLX",
+    "yfinance_version": "1.1.0"
+  },
+  "NKE_2020-01-01_2024-12-31": {
+    "end_date": "2024-12-31",
+    "first_date": "2020-01-02",
+    "last_date": "2024-12-30",
+    "n_rows": 1257,
+    "saved_utc": "2026-05-03T13:33:38.775338+00:00",
+    "start_date": "2020-01-01",
+    "ticker": "NKE",
+    "yfinance_version": "1.1.0"
+  },
+  "NVDA_2020-01-01_2024-12-31": {
+    "end_date": "2024-12-31",
+    "first_date": "2020-01-02",
+    "last_date": "2024-12-30",
+    "n_rows": 1257,
+    "saved_utc": "2026-05-03T13:33:37.582236+00:00",
+    "start_date": "2020-01-01",
+    "ticker": "NVDA",
+    "yfinance_version": "1.1.0"
+  },
+  "PFE_2020-01-01_2024-12-31": {
+    "end_date": "2024-12-31",
+    "first_date": "2020-01-02",
+    "last_date": "2024-12-30",
+    "n_rows": 1257,
+    "saved_utc": "2026-05-03T13:33:41.410482+00:00",
+    "start_date": "2020-01-01",
+    "ticker": "PFE",
+    "yfinance_version": "1.1.0"
+  },
+  "SBUX_2020-01-01_2024-12-31": {
+    "end_date": "2024-12-31",
+    "first_date": "2020-01-02",
+    "last_date": "2024-12-30",
+    "n_rows": 1257,
+    "saved_utc": "2026-05-03T13:33:38.955352+00:00",
+    "start_date": "2020-01-01",
+    "ticker": "SBUX",
+    "yfinance_version": "1.1.0"
+  },
+  "TMO_2020-01-01_2024-12-31": {
+    "end_date": "2024-12-31",
+    "first_date": "2020-01-02",
+    "last_date": "2024-12-30",
+    "n_rows": 1257,
+    "saved_utc": "2026-05-03T13:33:41.761943+00:00",
+    "start_date": "2020-01-01",
+    "ticker": "TMO",
+    "yfinance_version": "1.1.0"
+  },
+  "TM_2020-01-01_2024-12-31": {
+    "end_date": "2024-12-31",
+    "first_date": "2020-01-02",
+    "last_date": "2024-12-30",
+    "n_rows": 1257,
+    "saved_utc": "2026-05-03T13:33:38.438934+00:00",
+    "start_date": "2020-01-01",
+    "ticker": "TM",
+    "yfinance_version": "1.1.0"
+  },
+  "TSLA_2020-01-01_2024-12-31": {
+    "end_date": "2024-12-31",
+    "first_date": "2020-01-02",
+    "last_date": "2024-12-30",
+    "n_rows": 1257,
+    "saved_utc": "2026-05-03T13:33:37.890303+00:00",
+    "start_date": "2020-01-01",
+    "ticker": "TSLA",
+    "yfinance_version": "1.1.0"
+  },
+  "UNH_2020-01-01_2024-12-31": {
+    "end_date": "2024-12-31",
+    "first_date": "2020-01-02",
+    "last_date": "2024-12-30",
+    "n_rows": 1257,
+    "saved_utc": "2026-05-03T13:33:41.097082+00:00",
+    "start_date": "2020-01-01",
+    "ticker": "UNH",
+    "yfinance_version": "1.1.0"
   }
 }

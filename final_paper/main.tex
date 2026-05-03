@@ -148,12 +148,18 @@ Diebold-Mariano machinery are applied. The published-style and
 leakage-safe accuracy series differ at $z$ below $-17$. \\
 
 \noindent Statistical predictability above chance is necessary but
-not sufficient for economic value. We translate the leakage-safe
-predictions into long/short sign-following trading rules with
-realistic per-trade transaction costs at $10$ basis points per
-round trip, and evaluate the resulting net-of-cost annualised
-returns against passive buy-and-hold on AAPL. None of the rules
-exceed the buy-and-hold benchmark over the same out-of-fold window.
+not sufficient for economic value, a distinction repeatedly
+emphasised in the recent financial-ML literature
+\citep{avramov2023machine,kelly2023financial} and reinforced by
+the multiple-testing concerns surveyed by \citet{harvey2016cross}.
+We translate the leakage-safe predictions into long/short
+sign-following trading rules with realistic per-trade transaction
+costs at $10$ basis points per round trip, a level consistent with
+the cost-aware portfolio-construction framework of
+\citet{demiguel2020transaction}, and evaluate the resulting net-of
+cost annualised returns against passive buy-and-hold on AAPL. None
+of the rules exceed the buy-and-hold benchmark over the same
+out-of-fold window.
 The contribution of the paper is therefore methodological and
 empirical at once: a transparent, single-asset reassessment that
 demonstrates how much of the published machine-learning advantage
@@ -356,7 +362,7 @@ u \leq t+h.
 
 \subsection{Model interpretability}
 
-Predictive accuracy alone does not establish economic relevance. We therefore supplement aggregate performance metrics with SHAP (SHapley Additive exPlanations) decompositions \citep{lundberg2017unified}, which attribute each prediction additively to the contributing features. For tree-based methods, SHAP values can be computed exactly in polynomial time via the TreeSHAP algorithm. Globally, the mean absolute SHAP value of predictor~$j$ serves as an importance measure comparable across models. Locally, SHAP dependence plots reveal the functional form linking a feature's raw value to its marginal contribution, enabling us to assess, for instance, whether the RSI enters the model as a momentum-continuation signal (monotonically increasing) or as a mean-reversion signal (non-monotonic). This distinction has direct economic content and cannot be inferred from a single importance ranking.
+Predictive accuracy alone does not establish economic relevance. We therefore supplement aggregate performance metrics with SHAP (SHapley Additive exPlanations) decompositions \citep{lundberg2017unified}, which attribute each prediction additively to the contributing features. For tree-based methods, SHAP values can be computed exactly in polynomial time via the TreeSHAP algorithm of \citet{lundberg2020local}. Globally, the mean absolute SHAP value of predictor~$j$ serves as an importance measure comparable across models. Locally, SHAP dependence plots reveal the functional form linking a feature's raw value to its marginal contribution, enabling us to assess, for instance, whether the RSI enters the model as a momentum-continuation signal (monotonically increasing) or as a mean-reversion signal (non-monotonic). This distinction has direct economic content and cannot be inferred from a single importance ranking.
 
 
 %% === BLOCK 3: Data Section ===
@@ -1334,7 +1340,12 @@ none of the nine $p$-values clears the $0.0056$ threshold; a
 Romano-Wolf or Hansen-SPA adjustment, which exploits the
 correlation structure between the test statistics, is the
 appropriate next step before any decisive model-selection claim
-is drawn from this table.
+is drawn from this table. In the same spirit, the deflated
+Sharpe ratio of \citet{bailey2014deflated} provides a
+multiple-testing-aware criterion for the related question of
+whether any \emph{strategy} (rather than any model) attains
+genuine economic significance once the number of trials is
+controlled for.
 
 \subsection{Hyperparameter drift across outer folds}
 
@@ -1456,13 +1467,15 @@ closed on dedicated branches: economic backtest C-19 (see
 \texttt{08\_backtest\_report.md}), statistical inference C-22
 (see Section~\ref{sec:addendum_inference} above and
 \texttt{09\_inference\_report.md}), and data-snapshot
-reproducibility C-13 (see \texttt{10\_data\_snapshot\_report.md};
-the AAPL OHLCV used in this section is committed under
-\texttt{data/snapshots/} and read by the pipeline before any
-\texttt{yfinance} call). The remaining open audit items are
-secondary (balanced-accuracy and Brier metrics, walk-forward
-robustness, panel-wide sweep) and do not affect this section's
-quantitative claims.
+reproducibility C-13. All 25~ticker snapshots are now committed
+under \texttt{data/snapshots/} (see
+\texttt{10\_data\_snapshot\_report.md} and
+\texttt{17\_panel\_snapshot.md}); the pipeline reads them before
+any \texttt{yfinance} call, so the gating constraint on the
+panel-wide replication is now compute time alone. The remaining
+open audit items are secondary (balanced-accuracy and Brier
+metrics, walk-forward robustness, matched-budget run, panel-wide
+sweep) and do not affect this section's quantitative claims.
 
 \section*{Use of generative AI}
 
@@ -1495,21 +1508,21 @@ agencies in the public, commercial, or not-for-profit sectors.
 
 The empirical analysis uses publicly available daily OHLCV data
 downloaded from Yahoo Finance via the \texttt{yfinance} Python
-package. The single-asset leakage-safe results in
-Section~\ref{sec:addendum} use the AAPL snapshot
-(\texttt{data/snapshots/AAPL\_2020-01-01\_2024-12-31.parquet}),
-which is committed to the companion repository as an immutable
-Parquet file accompanied by metadata recording the
-\texttt{yfinance} version, the UTC capture time, and the row
-count, so that any reproducer reads byte-identical inputs to those
-used in this paper. The published-style results in
-Section~\ref{sec:results} use the full 25-ticker panel; those
-snapshots have not yet been committed because the panel-wide
-nested-CV sweep that consumes them is gated on multi-day compute
-and is left for a follow-up. The CLI driver
-\texttt{scripts/snapshot\_data.py} re-fetches and pins any
-ticker on demand from the same vintage of \texttt{yfinance};
-running it without arguments produces the full 25-snapshot set.
+package. All 25~tickers in our universe (AAPL, MSFT, GOOGL, NVDA,
+META, TSLA, F, GM, TM, HMC, NKE, SBUX, MCD, DIS, NFLX, JPM, BAC,
+GS, MS, C, JNJ, UNH, PFE, ABBV, TMO) are committed to the companion
+repository as immutable Parquet snapshots under
+\texttt{data/snapshots/}, each accompanied by metadata recording
+the \texttt{yfinance} version (1.1.0), the UTC capture time, and
+the row count (1{,}257~trading days per ticker), so that any
+reproducer reads byte-identical inputs to those used in this paper.
+The CLI driver \texttt{scripts/snapshot\_data.py} re-fetches and
+pins any ticker on demand from the same \texttt{yfinance} vintage;
+running it without arguments regenerates the full 25-snapshot set.
+The leakage-safe single-asset results of
+Section~\ref{sec:addendum} use the AAPL snapshot directly; the
+panel-wide nested-CV sweep that would consume the other 24 snapshots
+is gated on multi-day compute and is left for a follow-up.
 
 \section*{Code availability statement}
 
