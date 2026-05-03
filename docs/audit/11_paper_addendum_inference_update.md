@@ -1,0 +1,191 @@
+# Paper §10 Addendum: Bootstrap CIs and DM Folded In
+
+**Branch:** `qf-08-writing-revision`
+**Audit cross-reference:** the paper-text follow-up requested in
+`09_inference_report.md` §4.
+**Status:** addendum text in `final_paper/main.tex` updated to use
+the block-bootstrap CIs and pairwise Diebold-Mariano results from
+`qf-06-statistical-inference`. C-13 and C-22 closures are now
+acknowledged in §10.7.
+
+---
+
+## 1. Why this exists
+
+`docs/audit/09_inference_report.md` shipped the inference module
+and the AAPL OOF result tables, but left the paper text on
+`qf-08-writing-revision` untouched. The drop-in text in §4 of
+that report was not yet folded in. This commit folds it in.
+
+---
+
+## 2. What changed in `final_paper/main.tex`
+
+### 2.1 Abstract footnote (line 56)
+
+The "Note added in revision" footnote now reports the AAPL
+$h=1$ pooled-OOF accuracy as a Politis-Romano stationary
+block-bootstrap interval [0.486, 0.541] and adds
+`09_inference_report.md` to the list of cited audit reports.
+The CI value moves by 0.001 versus the prior Wilson interval
+because the lag-1 autocorrelation of the $h=1$ correctness
+series is essentially zero ($-0.05$); the methodological
+relabel is the substantive change, not the numbers.
+
+### 2.2 Table `tab:addendum_aapl_h1` ($h=1$ headline rejection)
+
+The "95\% CI" column header now reads "Bootstrap 95\% CI" and
+the caption documents the block-bootstrap settings
+($n_{\text{boot}}=4000$, $m=11$, seed 42). The CI numbers
+become [0.486, 0.541] (RF), [0.461, 0.516] (XGB),
+[0.459, 0.510] (LGB). The $z$-vs-legacy column is retained;
+its values are unchanged because they compare the point
+estimate to 0.730, which is far outside any sensible CI.
+
+### 2.3 Table `tab:addendum_aapl_window` (multi-horizon)
+
+Two changes:
+
+1. The "$z$ vs.\ legacy" column is replaced with two columns:
+   "Bootstrap 95\% CI" and "Verdict vs.\ legacy". The verdicts
+   are: $h=1$ "rejects ($p<10^{-10}$)", $h=5$ "rejects (CI
+   excludes 0.638)", $h=15$ "tied (CI contains 0.50, 0.532,
+   0.560)".
+2. The prose paragraph after the table is rewritten. The
+   pre-revision claim that "the leakage-safe estimate is
+   slightly higher (56.0\%, $z=+1.99$, $p\approx 0.05$)" is
+   removed and replaced with a paragraph explaining that the
+   block-bootstrap CI [0.481, 0.643] simultaneously contains
+   0.500, 0.532 and 0.560 — none of the three is statistically
+   distinguishable from the others — and that the prior
+   $z=+1.99$ relied on a Wilson interval which is too narrow at
+   $h=15$ (the correctness-series $\hat{\rho}_1 \approx 0.69$
+   is ignored by Wilson). The block-bootstrap CI is $2.9\times$
+   wider than the Wilson CI for that row.
+
+### 2.4 New subsection §10.5: "Block-bootstrap inference and pairwise Diebold-Mariano"
+
+Inserted between "Multi-horizon comparison" (§10.4) and
+"Hyperparameter drift" (was §10.5, now §10.6). Contents:
+
+- Methodological motivation (overlapping labels at $h>1$,
+  serial dependence in correctness flags at $h=1$).
+- Politis-Romano stationary block bootstrap, Newey-West HAC
+  Diebold-Mariano with Harvey-Leybourne-Newbold correction.
+- Pointers to `src/inference.py`, `tests/test_inference.py`,
+  `docs/audit/09_inference_report.md`.
+- Block-size table prose ($m=11$ at $h=1$ growing to $m=21$ at
+  $h=15$); CI half-width inflation factor ($1.0\times$ at $h=1$,
+  $1.8\times$ at $h=5$, $2.9\times$ at $h=15$).
+- New table `tab:addendum_dm` with the nine pairwise DM tests
+  from `09_inference_report.md` §3.3.
+- Reading paragraph: model ranking is real (RF dominates at
+  $h \le 5$, XGBoost at $h=15$, LightGBM worst throughout) but
+  ranks models that are statistically tied with chance in
+  absolute terms.
+- Multiple-testing caveat: the nine $p$-values are uncorrected;
+  Romano-Wolf or Hansen-SPA is the appropriate next step;
+  Bonferroni at $\alpha=0.05$ retains only the $h=5$ RF vs XGB
+  comparison.
+
+### 2.5 §10.4 "should be read carefully" paragraph
+
+The trailing reference to "deferred to the metric-upgrade
+addendum tied to audit issue C-22" is replaced with "deferred
+to the metric-upgrade audit item C-26". C-22 is no longer the
+correct pointer because C-22 is closed by §10.5; balanced-
+accuracy and Brier upgrades remain under C-26.
+
+### 2.6 §10.7 "Status of the multi-horizon, panel-wide replication"
+
+The closing paragraph previously said C-13, C-19 and C-22
+"remain to be addressed in further revisions". It now says all
+three are closed, names the report file for each, and notes
+that the AAPL OHLCV used in the addendum is read from the
+committed `data/snapshots/AAPL_2020-01-01_2024-12-31.parquet`
+before any yfinance call. Remaining open items are downgraded
+to "secondary" (balanced-accuracy and Brier metrics, walk-
+forward robustness, panel-wide sweep).
+
+---
+
+## 3. Numbers cross-checked
+
+All CI brackets and DM statistics in the new text are taken
+verbatim from `docs/audit/09_inference_report.md` §3.1 and §3.3,
+which were generated by:
+
+```bash
+python scripts/run_inference.py --horizons 1 5 15 --n-boot 4000 --seed 42
+```
+
+Outputs:
+
+- `results/inference_oof_cis.csv` — bootstrap CIs.
+- `results/inference_dm_pvalues.csv` — pairwise DM tests.
+- `results/inference_run_snapshot.json` — run metadata.
+
+No new computation was performed for this commit; the paper
+text now reflects what the inference run already wrote to disk.
+
+---
+
+## 4. Reproduction
+
+The compiled paper now requires the `nested_cv_predictions.csv`
+files at `results/nested_cv_predictions.csv`,
+`results/nested_cv_h5/nested_cv_predictions.csv`,
+`results/nested_cv_h15/nested_cv_predictions.csv`, plus the
+inference outputs above. All are committed in their respective
+branches and merge cleanly.
+
+```bash
+git checkout qf-08-writing-revision
+cd final_paper && pdflatex main.tex && bibtex main && pdflatex main.tex && pdflatex main.tex
+```
+
+LaTeX-side caveats:
+
+- The new table `tab:addendum_dm` uses `lllrrl`; the underlying
+  `tabular` width fits inside `\textwidth` at the addendum's
+  `\scriptsize`.
+- The new subsection introduces one cross-reference label,
+  `sec:addendum_inference`, which is referenced both from the
+  abstract footnote and from the §10.3 caption.
+
+---
+
+## 5. Style audit (project rule check)
+
+- No em dashes (U+2014) introduced. The single pre-existing
+  occurrence in line 56 is unchanged from the prior commit.
+- No double-hyphen `---` introduced in new prose. The
+  pre-existing `---` instances at lines 961, 962, 1091 and 1094
+  are inherited from the original addendum and untouched.
+- No "underscore" rhetoric introduced.
+- No claim of economic value beyond what is supported by the
+  qf-05 backtest (which the new text does not invoke).
+- No inflated certainty: the h=15 paragraph explicitly walks
+  back the prior $z=+1.99$ rejection.
+
+---
+
+## 6. Audit closure status after this commit
+
+| ID | Status | Branch |
+|---|---|---|
+| C-1 (causal labels) | Closed | `qf-03-label-fixes` |
+| C-2 (no nested CV) | Closed | `qf-04-nested-purged-cv` |
+| C-3 (selection outside folds) | Closed | `qf-04-nested-purged-cv` |
+| C-4 (panel-wide tuning) | Closed | `qf-04-nested-purged-cv` |
+| C-5 (positional t1 cap) | Closed | `qf-03-label-fixes` |
+| C-13 (data snapshot) | Closed | `qf-data-snapshot` |
+| C-18 (CUDA dead code) | Closed | `qf-02-cuda-support` |
+| C-19 (no economic backtest) | Closed | `qf-05-economic-backtest` |
+| C-22 (statistical inference) | Closed in code on `qf-06`, **now reflected in paper §10.5 on this branch** |
+
+The audit's critical list is now closed both in code and in
+the manuscript text. The remaining open items
+(C-6, C-7, C-8, C-9, C-11, C-12, C-15, C-16, C-17, C-20, C-21,
+C-23, C-24, C-25, C-26) are minor hygiene or major-but-secondary
+tasks that do not affect the addendum's quantitative claims.

@@ -53,7 +53,7 @@ Rania Hentati Kaffel\footnotemark[1]
 
 %% === BLOCK 2: Abstract ===
 \begin{abstract}
-\noindent\textbf{Note added in revision.}\footnote{A post-submission methodological audit found that the original 73\,\% headline relied on a single-loop validation in which feature selection (Boruta on the full sample) and Optuna hyperparameter tuning shared data with the test fold. Under a leakage-safe \emph{nested} Purged K-Fold protocol—where correlation filter, Boruta selection and Optuna inner cross-validation are confined to the outer-training slice each fold—the AAPL one-day pooled out-of-fold accuracy collapses to roughly 0.51 (95\,\% CI [0.485, 0.541]; $z=-17$ vs.\ the legacy 0.73). See Section~\ref{sec:addendum} for the corrected numbers and \texttt{docs/audit/01\_repo\_audit.md}, \texttt{06\_nested\_cv\_report.md} and \texttt{07\_nested\_cv\_first\_run.md} in the companion repository.} The body text below describes the originally submitted analysis. The corrected results supersede the headline accuracy figures.\medskip
+\noindent\textbf{Note added in revision.}\footnote{A post-submission methodological audit found that the original 73\,\% headline relied on a single-loop validation in which feature selection (Boruta on the full sample) and Optuna hyperparameter tuning shared data with the test fold. Under a leakage-safe \emph{nested} Purged K-Fold protocol—where correlation filter, Boruta selection and Optuna inner cross-validation are confined to the outer-training slice each fold—the AAPL one-day pooled out-of-fold accuracy collapses to roughly 0.51 (Politis-Romano stationary block-bootstrap 95\,\% CI [0.486, 0.541]; $z=-17$ vs.\ the legacy 0.73). See Section~\ref{sec:addendum} for the corrected numbers and \texttt{docs/audit/01\_repo\_audit.md}, \texttt{06\_nested\_cv\_report.md}, \texttt{07\_nested\_cv\_first\_run.md} and \texttt{09\_inference\_report.md} in the companion repository.} The body text below describes the originally submitted analysis. The corrected results supersede the headline accuracy figures.\medskip
 
 \noindent How much of the directional predictability reported for machine-learning stock forecasters survives a leakage-free evaluation? We address this question by benchmarking five tree-based classifiers---Random Forest, XGBoost, Gradient Boosting, LightGBM, and CatBoost---on a panel of 25~U.S.\ equities from five sectors over 2020--2024. From raw OHLCV data we compute 14~technical indicators and their first differences; a two-stage selection procedure (correlation filter plus Boruta) retains 13~validated predictors. We demonstrate that standard K-fold cross-validation inflates accuracy by 11 to 33~percentage points relative to Purged K-Fold with embargo \citep{lopez2018advances}, the bias growing monotonically with the label horizon. Under leakage-free evaluation, the best tuned model attains 73\% directional accuracy at the one-day horizon, roughly ten points above a persistence baseline---economically meaningful, yet far below the 80--95\% figures common in the literature.\footnote{This 73\,\% number is superseded by the leakage-safe replication in Section~\ref{sec:addendum}.} Portfolio-level prediction improves accuracy by up to 13~points over individual stocks, consistent with idiosyncratic-noise cancellation. SHAP analysis identifies the Relative Strength Index as the dominant predictor across all architectures, with its monotonically increasing SHAP profile consistent with short-term momentum continuation. These results underscore that validation design is a first-order determinant of reported performance in financial machine learning and that realistic accuracy estimates are substantially more modest than conventional studies suggest.
 \end{abstract}
@@ -875,16 +875,20 @@ reduction, the headline gap is statistically unmistakable.
 \centering
 \caption{AAPL, $h=1$: legacy headline vs.\ leakage-safe pooled
 out-of-fold accuracy. $n=1{,}229$ OOF predictions across five
-outer folds. 95\,\% Wilson confidence intervals.}
+outer folds. Confidence intervals are stationary
+block-bootstrap (Politis-Romano 1994) at 95\,\% with
+$n_{\text{boot}}=4000$ and expected block size $m=11$, set from
+the lag-1 autocorrelation of the correctness series; see
+Section~\ref{sec:addendum_inference}.}
 \label{tab:addendum_aapl_h1}
 \scriptsize
 \begin{tabular}{lcccc}
 \toprule
-\textbf{Model} & \textbf{Legacy (Table~5)} & \textbf{Pooled OOF (nested CV)} & \textbf{95\,\% CI} & \textbf{$z$ vs.\ legacy 0.73} \\
+\textbf{Model} & \textbf{Legacy (Table~5)} & \textbf{Pooled OOF (nested CV)} & \textbf{Bootstrap 95\,\% CI} & \textbf{$z$ vs.\ legacy 0.73} \\
 \midrule
-Random Forest & 73.0\,\% & \textbf{51.3\,\%} & [48.5\,\%, 54.1\,\%] & $-17.10$ \\
-XGBoost       & 72.3\,\% & 48.8\,\%          & [46.0\,\%, 51.6\,\%] & $-19.09$ \\
-LightGBM      & 72.6\,\% & 48.4\,\%          & [45.6\,\%, 51.2\,\%] & $-19.41$ \\
+Random Forest & 73.0\,\% & \textbf{51.3\,\%} & [48.6\,\%, 54.1\,\%] & $-17.10$ \\
+XGBoost       & 72.3\,\% & 48.8\,\%          & [46.1\,\%, 51.6\,\%] & $-19.09$ \\
+LightGBM      & 72.6\,\% & 48.4\,\%          & [45.9\,\%, 51.0\,\%] & $-19.41$ \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -912,28 +916,43 @@ meaningful $h=1$ peak from which to decline.
 single-model pooled OOF accuracy). Settings: 5~outer~$\times$
 2~inner folds, 5~Optuna trials, Boruta \texttt{max\_iter}=20,
 seed~42, raw-return labels. Legacy column reports the maximum
-across the five tree-based classifiers in Table~7 of the body.}
+across the five tree-based classifiers in Table~7 of the body.
+Bootstrap CIs are Politis-Romano stationary block-bootstrap at
+95\,\%, $n_{\text{boot}}=4000$, with expected block size $m$
+chosen as $\max\{h, m^{\star}(\hat{\rho}_1)\}$ where
+$m^{\star}(\hat{\rho}_1)$ is the Politis-White (2004)-style
+proxy from the lag-1 autocorrelation of the correctness series.}
 \label{tab:addendum_aapl_window}
 \scriptsize
-\begin{tabular}{lccccc}
+\begin{tabular}{lcccccc}
 \toprule
-\textbf{Horizon} & \textbf{Legacy max.} & \textbf{Nested CV best} & \textbf{Best model} & \textbf{AUC} & \textbf{$z$ vs.\ legacy} \\
+\textbf{Horizon} & \textbf{Legacy max.} & \textbf{Nested CV best} & \textbf{Best model} & \textbf{AUC} & \textbf{Bootstrap 95\,\% CI} & \textbf{Verdict vs.\ legacy} \\
 \midrule
-$h=1$  & 73.0\,\% & 51.3\,\% & Random Forest & 0.502 & $-17.10^{\ast\ast\ast}$ \\
-$h=5$  & 63.8\,\% & 51.6\,\% & Random Forest & 0.483 & $-8.89^{\ast\ast\ast}$ \\
-$h=15$ & 53.2\,\% & 56.0\,\% & XGBoost       & 0.525 & $+1.99^{\ast}$ \\
+$h=1$  & 73.0\,\% & 51.3\,\% & Random Forest & 0.502 & [48.6\,\%, 54.1\,\%] & rejects ($p<10^{-10}$) \\
+$h=5$  & 63.8\,\% & 51.6\,\% & Random Forest & 0.483 & [46.5\,\%, 56.8\,\%] & rejects (CI excludes 0.638) \\
+$h=15$ & 53.2\,\% & 56.0\,\% & XGBoost       & 0.525 & [48.1\,\%, 64.3\,\%] & tied (CI contains 0.50, 0.532, 0.560) \\
 \bottomrule
-\multicolumn{6}{l}{\scriptsize $^{\ast\ast\ast}$ $p<10^{-10}$;
-$^{\ast}$ $p \approx 0.046$ (two-sided).}
 \end{tabular}
 \end{table}
 
-\noindent The legacy paper's narrative---that accuracy decays
-\emph{monotonically} from 73\,\% at $h=1$ to 52\,\% at
-$h=15$---collapses under nested CV. The $h=1$ and $h=5$ legacy
-headlines are rejected at $p<10^{-10}$. The $h=15$ legacy 53.2\,\%
-is \emph{not} rejected; if anything, the leakage-safe estimate is
-slightly higher (56.0\,\%, $z=+1.99$, $p\approx 0.05$).
+\noindent The legacy paper's narrative, namely that accuracy
+decays \emph{monotonically} from 73\,\% at $h=1$ to 52\,\% at
+$h=15$, collapses under nested CV. The $h=1$ and $h=5$ legacy
+headlines are rejected at any conventional level: the $h=1$
+bootstrap CI [0.486, 0.541] excludes 0.730 by twenty
+percentage points, and the $h=5$ bootstrap CI [0.465, 0.568]
+excludes 0.638. The $h=15$ legacy 53.2\,\%, however, is
+\emph{not} rejected once the strong serial correlation in the
+$h=15$ correctness series ($\hat{\rho}_1 \approx 0.69$, induced
+by overlapping forward windows) is honestly accounted for: the
+block-bootstrap 95\,\% CI [0.481, 0.643] simultaneously contains
+the chance level 0.500, the legacy 0.532 and the leakage-safe
+point estimate 0.560. The asymptotic $z$-test in the
+pre-revision draft of this addendum reported $z=+1.99$
+($p\approx 0.046$) for the same comparison; that figure relied
+on a Wilson interval that assumes i.i.d.\ outcomes, and is too
+narrow at $h=15$. The block-bootstrap CI is $2.9\times$ wider
+than the Wilson CI for this row.
 
 \noindent The reading of this pattern is that the apparent decay
 reported in Section~4.5 was driven entirely by an artificially
@@ -952,8 +971,90 @@ elevated accuracy partly reflects the model successfully exploiting
 class imbalance via majority-class prediction rather than a
 genuine directional signal. The high $f1=0.685$ versus a balanced
 $f1$ near 0.50 is consistent with this reading. Confirming this
-requires a balanced-accuracy or Brier-score follow-up, deferred to
-the metric-upgrade addendum tied to audit issue C-22.
+requires a balanced-accuracy or Brier-score follow-up, deferred
+to the metric-upgrade audit item C-26.
+
+\subsection{Block-bootstrap inference and pairwise Diebold-Mariano}
+\label{sec:addendum_inference}
+
+The Wilson asymptotic confidence intervals reported in earlier
+drafts of this addendum assume i.i.d.\ Bernoulli outcomes. That
+assumption fails on out-of-fold predictions over a financial
+panel for two reasons. First, at any horizon $h>1$ the labels
+overlap by construction: the $h$-day forward return on day $t$
+shares $h-1$ underlying daily returns with the forward return on
+day $t+1$. Second, even at $h=1$ the correctness flags
+$\mathbf{1}\{\hat{y}=y\}$ exhibit serial dependence in regimes
+where the model lines up with momentum or mean-reversion phases.
+We replace the Wilson intervals with the Politis-Romano (1994)
+stationary block bootstrap (geometric block lengths, circular
+wrap; $n_{\text{boot}}=4000$, seed~42) and supplement the
+single-model results with a pairwise Diebold-Mariano (1995) test
+between models with the Newey-White HAC variance and the
+Harvey-Leybourne-Newbold (1997) small-sample correction. The
+implementation, the unit tests pinning its behaviour against
+i.i.d., AR(1) and dominance baselines, and the per-(model,
+horizon) block sizes are documented in
+\texttt{src/inference.py}, \texttt{tests/test\_inference.py} and
+\texttt{docs/audit/09\_inference\_report.md}.
+
+The block sizes selected by the Politis-White-style proxy grow
+with horizon, from $m=11$ at $h=1$ to $m=18$--$21$ at $h=15$.
+The lag-1 autocorrelation of the correctness series rises from
+$-0.05$ (no overlap, no regime memory at $h=1$) to $+0.69$ at
+$h=15$ (heavy overlap, fifteen-day windows). The block-bootstrap
+CI half-width is $1.0\times$ the Wilson half-width at $h=1$,
+$1.5$--$1.8\times$ at $h=5$, and $2.7$--$2.9\times$ at $h=15$,
+in direct proportion to the autocorrelation of the underlying
+correctness series.
+
+\begin{table}[H]
+\centering
+\caption{Pairwise Diebold-Mariano tests between leakage-safe
+models on the same OOF predictions. Negative DM statistic means
+the row model has strictly lower 0/1 loss. Newey-West HAC lag
+set to $h-1$; Harvey-Leybourne-Newbold (1997) correction
+applied. p-values are uncorrected for the nine simultaneous
+tests; a Bonferroni-style adjustment at $\alpha=0.05$ would
+require $p<0.0056$ and would retain only the $h=5$ RF vs.\ XGB
+comparison.}
+\label{tab:addendum_dm}
+\scriptsize
+\begin{tabular}{lllrrl}
+\toprule
+\textbf{Horizon} & \textbf{Model A} & \textbf{Model B} & \textbf{DM stat} & \textbf{p-value} & \textbf{Verdict ($\alpha=0.05$)} \\
+\midrule
+$h=1$  & LightGBM & RF      & $+2.05$ & 0.041 & RF beats LightGBM \\
+$h=1$  & LightGBM & XGBoost & $+0.28$ & 0.777 & tied \\
+$h=1$  & RF       & XGBoost & $-1.79$ & 0.074 & RF beats XGBoost (marginal) \\
+$h=5$  & LightGBM & RF      & $+2.27$ & 0.023 & RF beats LightGBM \\
+$h=5$  & LightGBM & XGBoost & $-0.11$ & 0.909 & tied \\
+$h=5$  & RF       & XGBoost & $-2.68$ & 0.007 & RF beats XGBoost \\
+$h=15$ & LightGBM & RF      & $-0.44$ & 0.660 & tied \\
+$h=15$ & LightGBM & XGBoost & $+1.70$ & 0.090 & XGBoost beats LightGBM (marginal) \\
+$h=15$ & RF       & XGBoost & $+1.99$ & 0.047 & XGBoost beats RF \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\noindent The DM tests yield a stable qualitative ranking that
+the absolute-accuracy CIs cannot: Random Forest dominates at
+$h \le 5$ (decisively over LightGBM at both horizons,
+significantly over XGBoost at $h=5$), and XGBoost takes the lead
+at $h=15$. LightGBM is the worst of the three at every horizon.
+This is a comparison of \emph{relative} loss between models
+fit and predicted on identical folds, so it carries information
+even when each model's accuracy CI overlaps the chance level
+$0.50$. The reading is therefore that the model ranking is real,
+but ranks models that, in absolute terms, are statistically
+indistinguishable from a coin flip at $h \ge 5$.
+
+The Diebold-Mariano p-values in
+Table~\ref{tab:addendum_dm} are uncorrected. A Romano-Wolf or
+Hansen-SPA adjustment for the nine simultaneous tests is the
+appropriate next step before drawing model-selection conclusions
+from this table; the Bonferroni heuristic noted in the caption
+is conservative.
 
 \subsection{Hyperparameter drift across outer folds}
 
@@ -1022,11 +1123,19 @@ leakage artifact---is already determined; only the precise
 panel-mean and the cross-sector decomposition of Tables~8--10
 require the full sweep before they can be revised.
 
-The corresponding open audit items
-(\texttt{04\_post\_fix\_verification.md}, R-2: data snapshot
-C-13; economic backtest C-19; statistical inference C-22) remain
-to be addressed in further revisions and do not affect the
-addendum's quantitative claims.
+The corresponding audit items raised in
+\texttt{04\_post\_fix\_verification.md} (R-2) have since been
+closed on dedicated branches: economic backtest C-19 (see
+\texttt{08\_backtest\_report.md}), statistical inference C-22
+(see Section~\ref{sec:addendum_inference} above and
+\texttt{09\_inference\_report.md}), and data-snapshot
+reproducibility C-13 (see \texttt{10\_data\_snapshot\_report.md};
+the AAPL OHLCV used in this addendum is committed under
+\texttt{data/snapshots/} and read by the pipeline before any
+\texttt{yfinance} call). The remaining open audit items are
+secondary (balanced-accuracy and Brier metrics, walk-forward
+robustness, panel-wide sweep) and do not affect this addendum's
+quantitative claims.
 
 \newpage
 
