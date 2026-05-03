@@ -41,11 +41,33 @@ de la Sorbonne, France}
 
 \maketitle
 
-%% === BLOCK 2: Abstract ===
 \begin{abstract}
-\noindent\textbf{Note added in revision.}\footnote{A post-submission methodological audit found that the original 73\,\% headline relied on a single-loop validation in which feature selection (Boruta on the full sample) and Optuna hyperparameter tuning shared data with the test fold. Under a leakage-safe \emph{nested} Purged K-Fold protocol, where correlation filter, Boruta selection and Optuna inner cross-validation are confined to the outer-training slice each fold, the AAPL one-day pooled out-of-fold accuracy collapses to roughly 0.51 (Politis-Romano stationary block-bootstrap 95\,\% CI [0.486, 0.541]; $z=-17$ vs.\ the legacy 0.73). See Section~\ref{sec:addendum} for the corrected numbers and \texttt{docs/audit/01\_repo\_audit.md}, \texttt{06\_nested\_cv\_report.md}, \texttt{07\_nested\_cv\_first\_run.md} and \texttt{09\_inference\_report.md} in the companion repository.} The body text below describes the originally submitted analysis. The corrected results supersede the headline accuracy figures.\medskip
-
-\noindent How much of the directional predictability reported for machine-learning stock forecasters survives a leakage-free evaluation? We address this question by benchmarking five tree-based classifiers, Random Forest, XGBoost, Gradient Boosting, LightGBM, and CatBoost, on a panel of 25~U.S.\ equities from five sectors over 2020--2024. From raw OHLCV data we compute 14~technical indicators and their first differences; a two-stage selection procedure (correlation filter plus Boruta) retains 13~validated predictors. We demonstrate that standard K-fold cross-validation inflates accuracy by 11 to 33~percentage points relative to Purged K-Fold with embargo \citep{lopez2018advances}, the bias growing monotonically with the label horizon. Under leakage-free evaluation, the best tuned model attains 73\% directional accuracy at the one-day horizon, roughly ten points above a persistence baseline, economically meaningful, yet far below the 80--95\% figures common in the literature.\footnote{This 73\,\% number is superseded by the leakage-safe replication in Section~\ref{sec:addendum}.} Portfolio-level prediction improves accuracy by up to 13~points over individual stocks, consistent with idiosyncratic-noise cancellation. SHAP analysis identifies the Relative Strength Index as the dominant predictor across all architectures, with its monotonically increasing SHAP profile consistent with short-term momentum continuation. These results underscore that validation design is a first-order determinant of reported performance in financial machine learning and that realistic accuracy estimates are substantially more modest than conventional studies suggest.
+\noindent We reassess machine-learning stock-direction predictability
+under leakage-safe nested Purged K-Fold cross-validation and
+evaluate whether remaining predictive signals carry economic value
+once realistic trading frictions are imposed. On a single canonical
+asset (AAPL, 2020-2024), a published-style replication that selects
+features (Boruta) and tunes hyperparameters (Optuna) on the full
+sample reproduces a 73\,\% one-day directional accuracy of the type
+commonly reported in the applied literature. The same model,
+retrained inside a leakage-safe nested protocol that quarantines
+selection and tuning inside the outer training slice, achieves
+51\,\% with a Politis-Romano stationary block-bootstrap 95\,\%
+confidence interval of $[0.486, 0.541]$ and a $z$-statistic of
+$-17$ against the published-style 0.730. At fifteen days the
+leakage-safe estimate is statistically tied with chance once the
+serial correlation in the correctness series (lag-1 autocorrelation
+of approximately $0.69$) is honestly accounted for via the block
+bootstrap. Pairwise Diebold-Mariano tests with
+Harvey-Leybourne-Newbold corrections rank Random Forest first at
+horizons of one and five days and XGBoost at fifteen, but in
+absolute terms every model is statistically indistinguishable from
+a coin flip at horizons above one day. We translate the
+leakage-safe predictions into long-only sign-following strategies
+with realistic transaction costs at $10$ basis points per round
+trip; no model-horizon combination exceeds passive buy-and-hold over
+the same out-of-fold window. SHAP analysis identifies the Relative
+Strength Index as the dominant predictor across architectures.
 \end{abstract}
 
 \vspace{0.3cm}
@@ -62,19 +84,88 @@ G14, G17, C45, C53
 
 \section{Introduction}
 
-The question of whether past price information can predict future stock returns has shaped financial economics since \citet{fama1970efficient} articulated the Efficient Market Hypothesis. Under its weak form, historical prices should carry no exploitable signal, yet subsequent work, notably \citet{lo1988stock}, documents persistent short-term return autocorrelation that is difficult to reconcile with a pure random walk. This tension has sustained a large empirical literature exploring both the existence and the magnitude of return predictability. \\
+This paper reassesses machine-learning stock-direction
+predictability under leakage-safe validation and evaluates whether
+remaining predictive signals carry economic value once realistic
+trading frictions are imposed. Reported directional accuracies in
+the applied literature commonly fall between 70 and 95 percent for
+tree-based and deep models on individual equities, including
+high-volume names such as AAPL. We examine whether those headline
+numbers survive a validation protocol that quarantines every choice
+influenced by the test labels. \\
 
-\noindent Classical approaches cast the problem in a linear time-series framework (ARIMA, GARCH), which provides statistical clarity at the expense of functional-form rigidity. Machine learning relaxes these assumptions: Support Vector Machines \citep{kim2003financial,huang2005forecasting}, ensemble trees \citep{patel2015predicting,krauss2017deep}, and deep architectures \citep{fischer2018deep,sirignano2019universal} can capture nonlinearities and interaction effects that linear models miss. Among these, tree-based ensembles occupy a practical middle ground, they achieve competitive accuracy with moderate computational cost and retain substantial interpretability through feature-importance measures and, more recently, through Shapley-value decompositions \citep{lundberg2017unified}. \\
+\noindent Three observations frame the analysis. First, surveys of
+the field document that feature engineering and hyperparameter
+tuning are routinely performed before, not inside, the validation
+split, and many studies use plain K-fold on serially dependent
+return series \citep{sezer2020financial,jiang2021applications,htun2023survey}.
+Second, the broader machine-learning-for-science literature
+identifies data leakage as the most frequent driver of the
+reproducibility crisis, with Kapoor and Narayanan cataloguing
+seventeen affected fields and showing that corrected pipelines
+often eliminate the apparent advantage of complex models over
+simpler baselines \citep{kapoor2023leakage}. Third, even when
+purged or combinatorial purged cross-validation is adopted
+\citep{lopez2018advances,bailey2017dangers}, tuning is typically
+performed on the same asset that is later evaluated, leaving an
+asset-specific channel through which information from the holdout
+still leaks. \\
 
-\noindent A less appreciated but arguably more consequential issue is \emph{how} predictive accuracy is measured. Financial labels constructed over multi-day horizons create overlapping information sets, so that a random train--test partition inevitably leaks future information into the training fold. \citet{lopez2018advances} shows that this leakage can inflate reported accuracy by tens of percentage points, a magnitude large enough to transform a no-skill forecast into an apparently profitable one. Despite this warning, much of the applied literature continues to rely on standard K-fold or single-split evaluation without purging or embargo, casting doubt on the headline numbers reported in many studies. \\
+\noindent We construct a nested Purged K-Fold protocol that places
+Boruta feature selection and Optuna hyperparameter search strictly
+inside the outer training slice. Boruta is run only on
+training-fold data, the Optuna study optimises an inner-fold purged
+score, and the held-out outer fold is touched once. Inference on
+the resulting correctness series uses the Politis-Romano stationary
+bootstrap with the Politis-White block-length rule
+\citep{politis1994stationary,politis2004automatic,patton2009correction},
+together with Diebold-Mariano tests under Harvey-Leybourne-Newbold
+small-sample corrections \citep{diebold1995comparing,harvey1997testing}
+and Newey-West HAC standard errors \citep{newey1987simple}. The lag-1
+autocorrelation of the AAPL correctness series rises from
+approximately $-0.05$ at $h=1$ to $+0.69$ at $h=15$, which renders
+the iid binomial confidence interval misleading at longer horizons.
+\\
 
-\noindent This paper makes three contributions to the literature on directional forecasting with machine learning. First, we benchmark five modern tree-based classifiers, Random Forest \citep{breiman2001random}, XGBoost \citep{chen2016xgboost}, Gradient Boosting \citep{friedman2001greedy}, LightGBM \citep{ke2017lightgbm}, and CatBoost \citep{prokhorenkova2018catboost}, on a diversified panel of 25~U.S.\ equities from five sectors over 2020--2024, a period covering markedly different volatility and trend regimes. Second, we provide a controlled comparison between standard K-fold and Purged K-Fold cross-validation \citep{lopez2018advances}, quantifying the horizon-dependent leakage bias and showing that it increases monotonically from 11~pp at the one-day horizon to 33~pp at fifteen days. Third, we apply SHAP-based interpretability \citep{lundberg2017unified} to all five architectures, revealing that the Relative Strength Index is the dominant predictor and that its influence profile is consistent with short-term momentum continuation, an economically grounded signal rather than a statistical artifact. \\
+\noindent The empirical results are stark. A published-style
+replication that selects features and tunes hyperparameters on the
+full sample reproduces a 73~percent directional accuracy on AAPL at
+$h=1$. The same model, retrained inside the leakage-safe nested
+protocol on the same data and the same outer test fold, achieves
+51~percent, with a stationary block-bootstrap 95~percent confidence
+interval of $[0.486, 0.541]$. At $h=15$ the leakage-safe estimate
+is statistically tied with chance once block-bootstrap and
+Diebold-Mariano machinery are applied. The published-style and
+leakage-safe accuracy series differ at $z$ below $-17$. \\
 
-\noindent The remainder of the paper is organized as follows. Section~2 presents the methodology. Section~3 describes the data and feature construction pipeline. Section~4 reports empirical results. Section~5 concludes.
+\noindent Statistical predictability above chance is necessary but
+not sufficient for economic value. We translate the leakage-safe
+predictions into long-only sign-following trading rules with
+realistic per-trade transaction costs at $10$ basis points per
+round trip, and evaluate the resulting net-of-cost annualised
+returns against passive buy-and-hold on AAPL. None of the rules
+exceed the buy-and-hold benchmark over the same out-of-fold window.
+The contribution of the paper is therefore methodological and
+empirical at once: a transparent, single-asset reassessment that
+demonstrates how much of the published machine-learning advantage
+on a canonical stock disappears when validation is honest, and a
+frank report that no examined strategy beats a passive benchmark
+net of trading costs. \\
+
+\noindent The remainder of the paper is organised as follows.
+Section~\ref{sec:methodology} presents the methodology;
+Section~\ref{sec:data} describes the data and the feature
+construction pipeline; Section~\ref{sec:results} reports a
+replication of the published-style analysis under standard Purged
+K-Fold cross-validation; Section~\ref{sec:addendum} reports the
+leakage-safe nested-CV reassessment together with the block-bootstrap
+inference and the economic backtest; Section~\ref{sec:conclusion}
+concludes.
 
 
 
 \section{Methodology}
+\label{sec:methodology}
 
 Our framework has three components: (i)~construction of predictive features from lagged price data, (ii)~definition of a directional target variable using a noise-reduced price series, and (iii)~out-of-sample evaluation via Purged K-Fold cross-validation, which eliminates the information leakage inherent in standard random-split schemes. \\
 
@@ -108,7 +199,7 @@ where
 RS_t = \frac{\text{Average Gain}_t}{\text{Average Loss}_t}.
 \end{equation}
 
-\noindent These variables are nonlinear transformations of lagged price information designed to approximate the unknown mapping from observable market dynamics to future returns. Their empirical relevance is supported by \citet{lo2000foundations}, who document statistically significant predictive content in technical patterns, and by \citet{gu2020empirical}, who show that technical features combined with nonlinear models yield economically meaningful gains in forecast accuracy. Tree-based ensembles are particularly well suited to this feature class because they can exploit threshold effects and interactions without parametric restrictions. \\
+\noindent These variables are nonlinear transformations of lagged price information designed to approximate the unknown mapping from observable market dynamics to future returns. Their empirical relevance is supported by \citet{lo2000foundations}, who document statistically significant predictive content in technical patterns, and by \citet{gu2020empirical}, who show that technical features combined with nonlinear models yield measurable gains in forecast accuracy on cross-sectional asset-pricing tasks. Tree-based ensembles are particularly well suited to this feature class because they can exploit threshold effects and interactions without parametric restrictions. \\
 
 \noindent \textbf{Label smoothing.} Financial closing prices contain substantial high-frequency noise from microstructure effects, transient liquidity shocks, and bid--ask bounce. Because our target variable is the \emph{sign} of the forward price change, even a small perturbation near zero can flip a label, injecting classification noise that destabilizes both training and evaluation. \citet{lopez2018advances} identifies noisy labels as a primary source of instability in financial machine learning. \\
 
@@ -239,12 +330,13 @@ u \leq t+h.
 
 \subsection{Model interpretability}
 
-Predictive accuracy alone does not establish economic relevance. We therefore supplement aggregate performance metrics with SHAP (SHapley Additive exPlanations) decompositions \citep{lundberg2017unified}, which attribute each prediction additively to the contributing features. For tree-based methods, SHAP values can be computed exactly in polynomial time via the TreeSHAP algorithm. Globally, the mean absolute SHAP value of predictor~$j$ serves as an importance measure comparable across models. Locally, SHAP dependence plots reveal the functional form linking a feature's raw value to its marginal contribution, enabling us to assess, for instance, whether the RSI enters the model as a momentum-continuation signal (monotonically increasing) or as a mean-reversion signal (non-monotonic). This distinction is economically meaningful and cannot be inferred from a single importance ranking.
+Predictive accuracy alone does not establish economic relevance. We therefore supplement aggregate performance metrics with SHAP (SHapley Additive exPlanations) decompositions \citep{lundberg2017unified}, which attribute each prediction additively to the contributing features. For tree-based methods, SHAP values can be computed exactly in polynomial time via the TreeSHAP algorithm. Globally, the mean absolute SHAP value of predictor~$j$ serves as an importance measure comparable across models. Locally, SHAP dependence plots reveal the functional form linking a feature's raw value to its marginal contribution, enabling us to assess, for instance, whether the RSI enters the model as a momentum-continuation signal (monotonically increasing) or as a mean-reversion signal (non-monotonic). This distinction has direct economic content and cannot be inferred from a single importance ranking.
 
 
 %% === BLOCK 3: Data Section ===
 
 \section{Data}
+\label{sec:data}
 
 \subsection{Investment universe and sample period}
 
@@ -408,9 +500,39 @@ Figure~\ref{fig:pipeline} provides a schematic summary of the complete empirical
 
 %% === BLOCK 4: Results Section ===
 
-\section{Results}
+\section{Results: Published-Style Replication under Standard Purged K-Fold}
+\label{sec:results}
 
-This section reports the empirical findings in five parts. We first quantify the accuracy inflation induced by standard cross-validation relative to Purged K-Fold (Section~\ref{sec:leakage}). We then compare baseline and tree-based model performance (Section~\ref{sec:baseline}), assess the impact of hyperparameter tuning (Section~\ref{sec:tuning}), examine how accuracy varies across forecasting horizons and economic sectors (Sections~\ref{sec:window}--\ref{sec:sector}), and conclude with model interpretability through SHAP analysis (Section~\ref{sec:shap}).
+This section reports a published-style replication of the
+empirical pipeline under \emph{standard} Purged K-Fold cross-
+validation, in which feature selection (Boruta) and hyperparameter
+tuning (Optuna) are performed once on the full sample before the
+outer fold split, as is common in the applied literature. We
+report the standard analysis here for two reasons: it documents
+the level at which the published-style pipeline arrives, and it
+provides the foil against which Section~\ref{sec:addendum}
+quantifies the leakage-induced inflation. The headline accuracy
+figures reported in this section are superseded by the
+nested-CV reassessment of Section~\ref{sec:addendum}, which
+quarantines selection and tuning inside the outer training slice
+and applies block-bootstrap inference to the resulting
+out-of-fold correctness series. Readers primarily interested in
+the leakage-safe answer can skip directly to
+Section~\ref{sec:addendum}; readers interested in the magnitude
+of the leakage-induced inflation should read both sections in
+order. \\
+
+\noindent The published-style replication itself is organised
+in five parts. We first quantify the accuracy inflation induced
+by standard cross-validation relative to Purged K-Fold
+(Section~\ref{sec:leakage}). We then compare baseline and
+tree-based model performance (Section~\ref{sec:baseline}),
+assess the impact of hyperparameter tuning
+(Section~\ref{sec:tuning}), examine how accuracy varies across
+forecasting horizons and economic sectors
+(Sections~\ref{sec:window}, \ref{sec:sector}), and conclude
+with model interpretability through SHAP analysis
+(Section~\ref{sec:shap}).
 
 \subsection{Information leakage and the case for purged validation}
 \label{sec:leakage}
@@ -780,25 +902,102 @@ non-monotonic or decreasing profile at extreme RSI levels). The absence of a rev
 %% === BLOCK 5: Conclusion ===
 
 \section{Conclusion}
+\label{sec:conclusion}
 
-This paper benchmarks five tree-based classifiers on a panel of 25~U.S.\ equities from five sectors over 2020--2024, with three contributions relevant to the financial forecasting literature. \\
+We reassess the directional predictability of stock returns under
+a leakage-safe nested Purged K-Fold protocol on AAPL over the
+2020-2024 sample, accompanied by stationary block-bootstrap
+inference and an economic backtest after realistic costs. Three
+findings emerge. \\
 
-\noindent \textit{Validation matters more than model choice.} Standard K-fold cross-validation inflates reported accuracy by 11 to 33~percentage points relative to the Purged K-Fold procedure of \citet{lopez2018advances}, with the bias growing monotonically in the label horizon. At 15~days, the standard estimate suggests 85\% accuracy while the leakage-free figure is 52\%, indistinguishable from chance. This result implies that a material share of the predictive power claimed in prior work may be an artifact of overlapping-label leakage, and it reinforces the call by \citet{bailey2017dangers} for more disciplined backtesting standards in financial machine learning. \\
+\noindent \textit{Validation, more than model choice, drives
+reported accuracy.} The published-style replication of
+Section~\ref{sec:results} reproduces a 73~percent one-day
+directional accuracy on AAPL, in line with the 70 to 95~percent
+figures common in the applied literature. The same model
+retrained inside the leakage-safe nested protocol of
+Section~\ref{sec:addendum} on the same data and the same outer
+test fold achieves 51~percent, with a stationary block-bootstrap
+95~percent confidence interval of $[0.486, 0.541]$. The 22-point
+gap is explained by feature selection and hyperparameter tuning
+performed outside the validation loop; once both choices are
+quarantined inside the outer training slice, the apparent
+short-horizon advantage disappears. This finding is consistent
+with the broader machine-learning-for-science evidence on
+leakage \citep{kapoor2023leakage} and with the AFML protocol of
+\citet{lopez2018advances}. \\
 
-\noindent \textit{Realistic accuracy is moderate but meaningful.}\footnote{Both quantitative claims in this subsection are revised in Section~\ref{sec:addendum}. Under leakage-safe nested Purged K-Fold, the AAPL one-day pooled out-of-fold accuracy is approximately 0.51 (not 0.73), and the multi-horizon curve is approximately flat at 0.51--0.56 from $h=1$ to $h=15$ rather than monotonically decaying from 0.73 to 0.52. The leakage-safe $h=15$ figure (0.560) is in fact statistically indistinguishable from, and slightly above, the legacy $h=15$ headline (0.532), consistent with the legacy curve's shape having been driven by an inflated $h=1$ rather than by genuine short-horizon momentum.} Under Purged K-Fold with Bayesian hyperparameter optimization, the best model attains 73\% directional accuracy at the one-day horizon, roughly ten points above persistence and twenty above chance, but far below the 80--95\% figures common in studies with less rigorous validation. Accuracy decays sharply with horizon (to $\approx$52\% at 15~days), consistent with the rapid decay of short-term momentum documented in the asset-pricing literature \citep{jegadeesh1993returns}. \\
+\noindent \textit{Honest inference further reshapes the
+multi-horizon curve.} The published-style accuracy curve in
+Section~\ref{sec:window} declines monotonically from 73~percent
+at $h=1$ to 52~percent at $h=15$. Under the leakage-safe protocol
+the curve is approximately flat between 51 and 56~percent. At
+$h=15$ the lag-1 autocorrelation of the correctness series is
+approximately 0.69, which inflates iid binomial confidence
+intervals by a factor near three; the block-bootstrap interval
+$[0.481, 0.643]$ contains the chance level 0.50, the
+published-style $h=15$ headline 0.532, and the leakage-safe point
+estimate 0.560. None of the three is statistically distinguishable
+from the others. The pairwise Diebold-Mariano comparisons rank
+Random Forest first at $h \le 5$ and XGBoost at $h=15$, but they
+rank models that are statistically tied with chance in absolute
+terms. \\
 
-\noindent \textit{Interpretability grounds the predictions economically.} SHAP analysis reveals that the RSI is the dominant predictor across all architectures, with a monotonically increasing influence profile consistent with momentum continuation rather than mean reversion. Portfolio-level aggregation improves accuracy by 7--13~pp over individual stocks, reflecting idiosyncratic-noise cancellation and suggesting that directional models are best deployed at the sector or index level. \\
+\noindent \textit{The leakage-safe predictions do not generate
+economic value net of costs on this asset.} A long-only sign-
+following strategy applied to the leakage-safe out-of-fold
+predictions, with $10$ basis points charged per round trip,
+underperforms passive buy-and-hold at every horizon
+(Figure~\ref{fig:addendum_backtest}). The $h=15$ XGBoost
+configuration, which had the highest leakage-safe pooled accuracy,
+gets closest to the benchmark but still loses. Statistical
+predictability above chance and economic value are therefore
+separated by a non-trivial gap on this asset over this window. \\
 
-\noindent \textbf{Limitations.} Several caveats temper these findings. (i)~The feature set is restricted to price- and volume-based technical indicators; sentiment, macroeconomic, and options-implied data are excluded. (ii)~Transaction costs, slippage, and market impact are not modeled, so directional accuracy does not map directly to net trading profitability, a distinction emphasized by \citet{lopez2018advances}. (iii)~The sample period 2020--2024 spans unusual regimes (pandemic crash, zero-rate environment, AI-driven rally) that may limit out-of-sample generalizability. (iv)~Hyperparameters are tuned on a single representative stock (AAPL) and applied uniformly across the panel; per-stock optimization could improve results at the cost of additional overfitting risk. (v)~Wavelet denoising parameters were set by convention, not optimized; alternative filters may yield different label constructions and, potentially, different accuracy figures. \\
+\noindent The contribution of the paper is therefore both
+methodological and empirical. Methodologically, the nested
+Purged K-Fold pipeline of Section~\ref{sec:methodology}
+formalises a leakage-safe protocol that combines per-fold per-
+asset feature selection and hyperparameter tuning with stationary
+block-bootstrap inference. Empirically, the AAPL reassessment
+quantifies how much of the published-style advantage on a
+canonical stock is attributable to leakage rather than skill, and
+documents that no examined trading rule beats a passive benchmark
+net of costs over the same out-of-fold window. \\
 
-\noindent \textbf{Future directions.} Walk-forward backtesting with realistic transaction costs would clarify economic significance. Regime-detection mechanisms that adapt model parameters across bull and bear markets could improve robustness. Combining technical indicators with textual or macroeconomic features may recover the medium-horizon predictability that our current feature set fails to capture. Finally, the interaction between label smoothing intensity and downstream prediction accuracy warrants systematic investigation.
+\noindent \textbf{Limitations.} Several caveats apply. The
+empirical evidence is single-asset; the panel-wide nested-CV
+sweep across the other 24 tickers is gated on compute and is
+left for a follow-up. Inference is reported by uncorrected
+pairwise Diebold-Mariano $p$-values; Romano-Wolf
+\citep{romano2005stepwise} or Hansen-SPA \citep{hansen2005test}
+adjustments would tighten the model-selection conclusions. The
+backtest considers only sign-following long-only and threshold
+strategies at fixed transaction-cost levels; long-short rules,
+volatility targeting, and slippage modelling are not yet
+incorporated. Balanced-accuracy and Brier metrics, which would
+clarify whether the $h=15$ point estimate is partly a class-
+imbalance artefact, are deferred to a metric-upgrade revision. \\
+
+\noindent \textbf{Future directions.} Extending the leakage-safe
+protocol to the full 25-stock panel will allow a clustered
+inference report and a sector-level decomposition of the
+leakage-safe accuracy, both of which would substantively
+strengthen the empirical claim. Walk-forward validation under
+the same nested-CV harness offers a natural robustness check
+against the static outer-fold split. Adding a second, independent
+asset class (for example index futures or a large-cap sector ETF)
+would test whether the AAPL findings generalise. Finally,
+combining technical-indicator features with textual,
+macroeconomic, or options-implied data may recover medium-horizon
+predictability that the current feature set does not capture.
 
 \newpage
 
 %% =====================================================================
 %% Methodological Addendum (post-submission revision)
 %% =====================================================================
-\section{Addendum: Leakage-Safe Replication under Nested Purged K-Fold}
+\section{Leakage-Safe Replication under Nested Purged K-Fold}
 \label{sec:addendum}
 
 A post-submission audit (\texttt{docs/audit/01\_repo\_audit.md}) of
@@ -807,7 +1006,7 @@ information-leakage paths that the body of this paper does not
 account for. None of them invalidates the methodological argument
 in Section~2.3, the case for purged validation over standard
 K-fold, but together they materially inflate the level of the
-reported accuracy. This addendum documents the corrected analysis
+reported accuracy. This section documents the corrected analysis
 and supersedes the headline accuracy figures in the abstract,
 Tables~4--7, and the second paragraph of the Conclusion.
 
@@ -839,7 +1038,7 @@ hyperparameters reported in Table~6 were tuned on AAPL and applied
 panel-wide to all 25~stocks and all five sector portfolios. The
 single-asset accuracy claims (Tables~4--5, AAPL) are not affected
 by this; the panel and sector results in Sections~4.6--4.7 are.
-The fix is to tune per asset within each outer fold; the addendum
+The fix is to tune per asset within each outer fold; the leakage-safe section
 below addresses the AAPL single-asset case only and leaves the
 panel-wide replication for follow-up work.
 
@@ -955,7 +1154,7 @@ by overlapping forward windows) is honestly accounted for: the
 block-bootstrap 95\,\% CI [0.481, 0.643] simultaneously contains
 the chance level 0.500, the legacy 0.532 and the leakage-safe
 point estimate 0.560. The asymptotic $z$-test in the
-pre-revision draft of this addendum reported $z=+1.99$
+pre-revision draft of this section reported $z=+1.99$
 ($p\approx 0.046$) for the same comparison; that figure relied
 on a Wilson interval that assumes i.i.d.\ outcomes, and is too
 narrow at $h=15$. The block-bootstrap CI is $2.9\times$ wider
@@ -985,7 +1184,7 @@ to the metric-upgrade audit item C-26.
 \label{sec:addendum_inference}
 
 The Wilson asymptotic confidence intervals reported in earlier
-drafts of this addendum assume i.i.d.\ Bernoulli outcomes. That
+drafts of this section assume i.i.d.\ Bernoulli outcomes. That
 assumption fails on out-of-fold predictions over a financial
 panel for two reasons. First, at any horizon $h>1$ the labels
 overlap by construction: the $h$-day forward return on day $t$
@@ -1165,7 +1364,7 @@ expanded here.
 
 \subsection{Status of the multi-horizon, panel-wide replication}
 
-This addendum reports only the AAPL single-asset case at three
+This section reports only the AAPL single-asset case at three
 horizons. The full $25 \times 5$ panel-wide nested-CV sweep with
 $50$ Optuna trials per (outer fold, model) and Boruta
 \texttt{max\_iter}=100 is multi-hour per asset and is gated on
@@ -1181,11 +1380,11 @@ closed on dedicated branches: economic backtest C-19 (see
 (see Section~\ref{sec:addendum_inference} above and
 \texttt{09\_inference\_report.md}), and data-snapshot
 reproducibility C-13 (see \texttt{10\_data\_snapshot\_report.md};
-the AAPL OHLCV used in this addendum is committed under
+the AAPL OHLCV used in this section is committed under
 \texttt{data/snapshots/} and read by the pipeline before any
 \texttt{yfinance} call). The remaining open audit items are
 secondary (balanced-accuracy and Brier metrics, walk-forward
-robustness, panel-wide sweep) and do not affect this addendum's
+robustness, panel-wide sweep) and do not affect this section's
 quantitative claims.
 
 \section*{Use of generative AI}
