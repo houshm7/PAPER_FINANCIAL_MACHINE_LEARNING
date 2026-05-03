@@ -260,7 +260,7 @@ From the raw OHLCV series we compute 14~technical indicators organized into four
 
 \noindent Each of the 14~base indicators is augmented by its one-day first difference ($\Delta x_{jt} = x_{jt} - x_{j,t-1}$), yielding 28~candidate features. The change features capture the \emph{dynamics} of each indicator, whether momentum is accelerating, volatility is expanding, or volume pressure is shifting, information that a single cross-sectional snapshot cannot convey. \\
 
-\noindent An important methodological choice concerns the interaction between indicator computation and label smoothing. \citet{basak2019predicting} apply exponential smoothing to the raw price series \emph{before} computing technical indicators, which introduces double-smoothing because most indicators already embed their own internal averaging (e.g., the RSI uses an exponential moving average of gains and losses). In our pipeline, indicators are computed on unsmoothed OHLCV data so that they retain full sensitivity to market conditions. Smoothing is applied only to the closing price series used for label construction, via Discrete Wavelet Transform denoising with a Daubechies-4 mother wavelet \citep{donoho1994ideal}. This wavelet filter achieves approximately 67.5\% noise reduction while preserving sharp transitions better than exponential smoothing (78.9\% noise reduction), which tends to introduce excessive lag.
+\noindent An important methodological choice concerns the interaction between indicator computation and label smoothing. \citet{basak2019predicting} apply exponential smoothing to the raw price series \emph{before} computing technical indicators, which introduces double-smoothing because most indicators already embed their own internal averaging (e.g., the RSI uses an exponential moving average of gains and losses). In our pipeline, indicators are computed on unsmoothed OHLCV data so that they retain full sensitivity to market conditions. Smoothing is applied only to the closing price series used for label construction, via Discrete Wavelet Transform denoising with a Daubechies-4 mother wavelet \citep{donoho1994ideal}. This wavelet filter achieves approximately 67.5\% noise reduction while preserving sharp transitions better than exponential smoothing (78.9\% noise reduction), which tends to introduce excessive lag (Figure~\ref{fig:smoothing}).
 
 \begin{figure}[H]
 \centering
@@ -278,7 +278,7 @@ With 28~candidate predictors and approximately 1{,}250~observations per stock, a
 
 \noindent \textit{Stage~2: Boruta algorithm.} The surviving features are submitted to the Boruta wrapper method \citep{kursa2010feature}, which creates randomized ``shadow'' copies of each real predictor, trains a Random Forest, and uses a statistical test to determine whether each real feature is significantly more important than the best shadow feature. Features that pass this test are classified as \emph{confirmed}; those that do not are \emph{rejected}. The final selected set contains 13~features, comprising a mix of base indicators and their change counterparts, which are used in all subsequent model estimation. \\
 
-\noindent Figure~\ref{fig:feature_corr} displays the pairwise correlation structure of the 14~base indicators, and Figure~\ref{fig:boruta} reports the Boruta importance ranking with confirmed and rejected features clearly demarcated.
+\noindent Figure~\ref{fig:feature_corr} displays the pairwise correlation structure of the 14~base indicators, Figure~\ref{fig:boruta} reports the Boruta importance ranking with confirmed and rejected features clearly demarcated, and Figure~\ref{fig:target_corr} shows the absolute Pearson correlation between each candidate feature and the binary target.
 
 \begin{figure}[H]
 \centering
@@ -629,7 +629,7 @@ Financial   & Random Forest & 56.3 \\
 \label{fig:sector_analysis}
 \end{figure}
 
-\noindent Healthcare (61.3\%) and Automotive (60.1\%) are the most predictable sectors; Financial stocks (56.3\%) are the hardest to forecast. The ranking is economically coherent. Healthcare equities exhibit persistent trend dynamics driven by clinical-trial milestones, patent cliffs, and regulatory calendars, events whose aftereffects unfold over multiple days and are well captured by momentum indicators. Automotive stocks during 2020--2024 were dominated by Tesla's large, sustained directional moves, which similarly favour trend-following features. Financial stocks, by contrast, reprice abruptly around macroeconomic releases (Fed decisions, employment reports) that lie outside our technical-indicator information set; their lower predictability reflects a genuine limitation of price-based features rather than a model failure. CatBoost leads in three of five sectors, plausibly because its ordered boosting and built-in target encoding provide stronger regularization in the noisier settings. \\
+\noindent Figure~\ref{fig:sector_analysis} reports the mean accuracy by sector and model with standard-deviation bars. Healthcare (61.3\%) and Automotive (60.1\%) are the most predictable sectors; Financial stocks (56.3\%) are the hardest to forecast. The ranking is economically coherent. Healthcare equities exhibit persistent trend dynamics driven by clinical-trial milestones, patent cliffs, and regulatory calendars, events whose aftereffects unfold over multiple days and are well captured by momentum indicators. Automotive stocks during 2020--2024 were dominated by Tesla's large, sustained directional moves, which similarly favour trend-following features. Financial stocks, by contrast, reprice abruptly around macroeconomic releases (Fed decisions, employment reports) that lie outside our technical-indicator information set; their lower predictability reflects a genuine limitation of price-based features rather than a model failure. CatBoost leads in three of five sectors, plausibly because its ordered boosting and built-in target encoding provide stronger regularization in the noisier settings. \\
 
 \noindent Figure~\ref{fig:sector_corr} displays the cross-sector return correlation matrix. All pairwise correlations are positive but moderate ($<0.50$), confirming meaningful independent variation across sectors, a prerequisite for the portfolio-level aggregation analysis that follows.
 
@@ -694,7 +694,14 @@ Automotive  & Random Forest & 60.1 & 66.7 \\
 \label{fig:individual_vs_portfolio}
 \end{figure}
 
-\noindent A striking finding is that portfolio-level directional accuracy consistently exceeds the average accuracy on individual constituent stocks, by margins of 6.6~pp (Automotive) to 12.9~pp (Technology). The mechanism is statistical diversification: in an equal-weighted portfolio of five stocks, idiosyncratic return components, earnings surprises, analyst revisions, firm-specific news, partially cancel, raising the signal-to-noise ratio of the aggregate return series. The resulting labels are more stable (fewer near-zero returns that could flip sign due to noise), and the classification task becomes structurally easier. The largest gain accrues to Technology, whose constituents span diverse sub-industries (semiconductors, advertising, social media, enterprise software) and thus offer the most idiosyncratic-risk cancellation. From an asset-management perspective, this result suggests that directional forecasting models deliver more reliable signals at the sector or index level than at the single-stock level, a finding with direct implications for the design of systematic trading strategies.
+\noindent Figure~\ref{fig:portfolio_evolution} plots the
+equal-weighted portfolio level evolution by sector over the
+sample period, and Figure~\ref{fig:individual_vs_portfolio}
+contrasts portfolio-level and individual-stock accuracy by model
+and horizon. A striking finding is that portfolio-level
+directional accuracy consistently exceeds the average accuracy
+on individual constituent stocks, by margins of 6.6~pp
+(Automotive) to 12.9~pp (Technology). The mechanism is statistical diversification: in an equal-weighted portfolio of five stocks, idiosyncratic return components, earnings surprises, analyst revisions, firm-specific news, partially cancel, raising the signal-to-noise ratio of the aggregate return series. The resulting labels are more stable (fewer near-zero returns that could flip sign due to noise), and the classification task becomes structurally easier. The largest gain accrues to Technology, whose constituents span diverse sub-industries (semiconductors, advertising, social media, enterprise software) and thus offer the most idiosyncratic-risk cancellation. From an asset-management perspective, this result suggests that directional forecasting models deliver more reliable signals at the sector or index level than at the single-stock level, a finding with direct implications for the design of systematic trading strategies.
 
 \subsection{Stacking ensemble}
 
@@ -757,7 +764,13 @@ To assess whether the predictive models exploit economically plausible signals, 
 
 \noindent Several findings merit discussion. First, the Relative Strength Index dominates all five models, contributing between roughly 25\% (LightGBM) and 48\% (CatBoost) of total mean absolute SHAP importance. Economically, the RSI summarizes recent directional momentum over a 14-day lookback. Its dominance at the one-day horizon aligns with the short-term return continuation documented by \citet{jegadeesh1993returns} and \citet{lo2000foundations}: stocks that have risen recently tend to continue rising over the next few days, a pattern that tree-based models can exploit via simple threshold rules on the RSI. \\
 
-\noindent Second, the beeswarm plot (Figure~\ref{fig:shap_bee}) reveals a \emph{monotonically increasing} RSI--SHAP profile: high RSI values push predictions toward UP, low values toward DOWN. This functional form is the signature of a momentum-continuation strategy, not a mean-reversion strategy (which would produce a non-monotonic or decreasing profile at extreme RSI levels). The absence of a reversal effect at RSI values above~70 suggests that, at the daily horizon, overbought conditions do not yet trigger contrarian pressure, consistent with the well-known finding that momentum profits peak at short horizons before reversing at intermediate ones \citep{jegadeesh1993returns}. \\
+\noindent Second, the beeswarm plot (Figure~\ref{fig:shap_bee})
+and the per-feature dependence plots (Figure~\ref{fig:shap_dep})
+reveal a \emph{monotonically increasing} RSI--SHAP profile: high
+RSI values push predictions toward UP, low values toward DOWN.
+This functional form is the signature of a momentum-continuation
+strategy, not a mean-reversion strategy (which would produce a
+non-monotonic or decreasing profile at extreme RSI levels). The absence of a reversal effect at RSI values above~70 suggests that, at the daily horizon, overbought conditions do not yet trigger contrarian pressure, consistent with the well-known finding that momentum profits peak at short horizons before reversing at intermediate ones \citep{jegadeesh1993returns}. \\
 
 \noindent Third, the cross-model comparison (Figure~\ref{fig:shap_cross}) reveals an architectural effect: LightGBM distributes importance more evenly, while CatBoost and Gradient Boosting concentrate heavily on RSI. This difference likely reflects the sequential nature of boosting with deeper trees, the algorithm fits the dominant signal first and allocates residual capacity to secondary features, whereas Random Forest, by averaging many independently grown trees, inherently diversifies across predictors. For practitioners, this implies that ensemble-diversity techniques (e.g., stacking models with different importance profiles) may extract complementary information. \\
 
@@ -1106,6 +1119,49 @@ figure at $h=15$, with AUC of only 0.525 and $f1=0.685$, is
 consistent with class-imbalance exploitation (the 15-day return
 is positive in the majority of windows in this 2020--2024
 sample) rather than directional skill.
+
+\subsection{Economic value: backtest after costs}
+\label{sec:addendum_backtest}
+
+The statistical reassessment in
+Sections~\ref{sec:addendum}.3-\ref{sec:addendum_inference} is
+necessary but not sufficient for an economic claim. We translate
+the leakage-safe out-of-fold predictions for each model and
+horizon into a sign-following long-only strategy, holding the
+asset for the full label horizon and unwinding at the next
+non-overlapping entry. Per-trade transaction costs are charged at
+$10$ basis points per round trip, a level consistent with retail
+spreads and expected slippage on a liquid single-name equity such
+as AAPL.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.95\textwidth]{figures/backtest_equity_curves.png}
+\caption{Leakage-safe backtest of the AAPL out-of-fold
+predictions, sign strategy, $10$~bps per round trip. Net equity
+curves for each model versus a buy-and-hold benchmark, by
+forecasting horizon. None of the strategies exceeds the
+buy-and-hold annualised return of $26.5$\,\% over the same OOF
+window, including the $h=15$ XGBoost configuration which had the
+highest leakage-safe pooled accuracy in
+Table~\ref{tab:addendum_aapl_window}. Source:
+\texttt{results/backtest\_equity.csv} regenerated by
+\texttt{scripts/make\_paper\_figures.py}.}
+\label{fig:addendum_backtest}
+\end{figure}
+
+\noindent The headline result is that no model-horizon
+combination beats passive buy-and-hold once realistic costs are
+imposed (Figure~\ref{fig:addendum_backtest}). The closest
+competitor is XGBoost at $h=15$, which is also the only setting
+where pooled OOF accuracy nominally exceeded chance, yet still
+underperforms the benchmark. Statistical predictability above
+chance and economic value are therefore separated by a non-trivial
+gap on this asset over this window. Per-strategy summary
+statistics (Sharpe, max drawdown, hit rate, turnover) are
+committed under \texttt{results/backtest\_metrics.csv}; their
+detailed discussion belongs in a follow-up revision and is not
+expanded here.
 
 \subsection{Status of the multi-horizon, panel-wide replication}
 
