@@ -45,6 +45,15 @@ def make_backtest_equity_figure(out_path: Path, *, cost_bps: float = 10.0,
     eq["entry_date"] = pd.to_datetime(eq["entry_date"], errors="coerce")
     eq["exit_date"] = pd.to_datetime(eq["exit_date"], errors="coerce")
 
+    # Real AAPL price path for the buy-and-hold benchmark, loaded
+    # from the committed Parquet snapshot. The previous version of
+    # this function synthesised B&H from a constant compounded
+    # daily return, which under-reported drawdowns and over-
+    # reported smoothness. The reviewer caught it.
+    snap_path = REPO / "data" / "snapshots" / "AAPL_2020-01-01_2024-12-31.parquet"
+    aapl = pd.read_parquet(snap_path)
+    aapl.index = pd.to_datetime(aapl.index).tz_localize(None).normalize()
+
     sel = eq[(eq["cost_bps"] == cost_bps) & (eq["strategy"] == strategy)
              & (eq["ticker"] == "AAPL")].copy()
     if sel.empty:
@@ -60,8 +69,6 @@ def make_backtest_equity_figure(out_path: Path, *, cost_bps: float = 10.0,
     if len(horizons) == 1:
         axes = [axes]
 
-    bh_cache: dict[int, pd.DataFrame] = {}
-
     for ax, h in zip(axes, horizons):
         for m in models:
             sub = sel[(sel["horizon"] == h) & (sel["model"] == m)]
@@ -71,35 +78,22 @@ def make_backtest_equity_figure(out_path: Path, *, cost_bps: float = 10.0,
             ax.plot(sub["exit_date"], sub["net_equity"], label=m,
                     linewidth=1.6)
 
-        # Buy-and-hold benchmark: synthesise a daily curve from the
-        # ann return reported in metrics (constant compounding over
-        # the OOF window). We use the metrics row's
-        # buy_and_hold_total_return to anchor the endpoint.
-        m0 = metrics[(metrics["horizon"] == h)
-                     & (metrics["cost_bps"] == cost_bps)
-                     & (metrics["strategy"] == strategy)
-                     & (metrics["ticker"] == "AAPL")]
-        if not m0.empty:
-            row = m0.iloc[0]
-            bh_total = float(row["buy_and_hold_total_return"])
-            # Anchor B&H to the same trading dates as the strategy
-            dates = sel[(sel["horizon"] == h) & (sel["model"] == models[0])
-                        ].sort_values("exit_date")["exit_date"]
-            if len(dates) >= 2:
-                t0, t1 = dates.iloc[0], dates.iloc[-1]
-                # Compounded daily return implied by total return
-                n = (t1 - t0).days
-                if n > 0:
-                    daily = (1.0 + bh_total) ** (1.0 / n) - 1.0
-                    bh_curve = (1.0 + daily) ** (
-                        (dates - t0).dt.days.values
-                    )
-                    ax.plot(dates, bh_curve, label="Buy & hold",
-                            linewidth=2.0, color="black",
-                            linestyle="--")
-                    bh_cache[int(h)] = pd.DataFrame(
-                        {"date": dates.values, "bh_equity": bh_curve}
-                    )
+        # Buy-and-hold benchmark: realised AAPL closing-price path
+        # from the committed Parquet snapshot, normalised to start
+        # at 1.0 on the first OOF exit date. This shows the actual
+        # equity curve a B&H investor would have realised over the
+        # same window, including drawdowns.
+        dates = sel[(sel["horizon"] == h) & (sel["model"] == models[0])
+                    ].sort_values("exit_date")["exit_date"]
+        if len(dates) >= 2:
+            t0 = dates.iloc[0]
+            bh_prices = aapl["Close"].reindex(dates).ffill()
+            anchor = bh_prices.iloc[0]
+            if pd.notna(anchor) and anchor > 0:
+                bh_curve = (bh_prices / anchor).values
+                ax.plot(dates, bh_curve, label="Buy & hold (real path)",
+                        linewidth=2.0, color="black",
+                        linestyle="--")
 
         ax.axhline(1.0, color="grey", linewidth=0.8, alpha=0.5)
         ax.set_title(f"$h={h}$")

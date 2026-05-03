@@ -42,10 +42,14 @@ de la Sorbonne, France}
 \maketitle
 
 \begin{abstract}
-\noindent We reassess machine-learning stock-direction predictability
-under leakage-safe nested Purged K-Fold cross-validation and
-evaluate whether remaining predictive signals carry economic value
-once realistic trading frictions are imposed. On a single canonical
+\noindent We reassess machine-learning directional predictability on
+a single canonical large-cap U.S.\ equity (AAPL, 2020-2024) under
+leakage-safe nested Purged K-Fold cross-validation and evaluate
+whether remaining predictive signals carry economic value once
+realistic trading frictions are imposed. The empirical evidence is
+deliberately single-asset; a panel-wide replication across the
+other 24 tickers in our universe is gated on multi-day compute and
+is left for a follow-up. On a single canonical
 asset (AAPL, 2020-2024), a published-style replication that selects
 features (Boruta) and tunes hyperparameters (Optuna) on the full
 sample reproduces a 73\,\% one-day directional accuracy of the type
@@ -63,7 +67,7 @@ Harvey-Leybourne-Newbold corrections rank Random Forest first at
 horizons of one and five days and XGBoost at fifteen, but in
 absolute terms every model is statistically indistinguishable from
 a coin flip at horizons above one day. We translate the
-leakage-safe predictions into long-only sign-following strategies
+leakage-safe predictions into a long/short sign-following strategy
 with realistic transaction costs at $10$ basis points per round
 trip; no model-horizon combination exceeds passive buy-and-hold over
 the same out-of-fold window. SHAP analysis identifies the Relative
@@ -84,10 +88,15 @@ G14, G17, C45, C53
 
 \section{Introduction}
 
-This paper reassesses machine-learning stock-direction
-predictability under leakage-safe validation and evaluates whether
-remaining predictive signals carry economic value once realistic
-trading frictions are imposed. Reported directional accuracies in
+This paper reassesses machine-learning directional predictability
+on a single canonical large-cap U.S.\ equity (AAPL, 2020-2024)
+under leakage-safe validation and evaluates whether remaining
+predictive signals carry economic value once realistic trading
+frictions are imposed. We focus on AAPL because it is the
+single most-studied stock in the applied directional-forecasting
+literature, with multiple published claims of accuracy above
+70~percent at the daily horizon; this lets us anchor the
+reassessment to a target the reader already has a prior for. Reported directional accuracies in
 the applied literature commonly fall between 70 and 95 percent for
 tree-based and deep models on individual equities, including
 high-volume names such as AAPL. We examine whether those headline
@@ -140,7 +149,7 @@ leakage-safe accuracy series differ at $z$ below $-17$. \\
 
 \noindent Statistical predictability above chance is necessary but
 not sufficient for economic value. We translate the leakage-safe
-predictions into long-only sign-following trading rules with
+predictions into long/short sign-following trading rules with
 realistic per-trade transaction costs at $10$ basis points per
 round trip, and evaluate the resulting net-of-cost annualised
 returns against passive buy-and-hold on AAPL. None of the rules
@@ -212,6 +221,23 @@ denote the denoised price. We implement $S(\cdot)$ as a Discrete Wavelet Transfo
 \noindent The choice of the Daubechies-4 wavelet and the automatic decomposition-level selection (set by PyWavelets to $\lfloor \log_2(T) \rfloor$) follow standard practice in signal processing \citep{donoho1994ideal}. No alternative wavelet families were tested, and the decomposition level was not tuned to prediction accuracy. This design decision limits the risk of in-sample over-optimization of the denoising step, though it leaves open the possibility that a different filter could yield marginally better or worse results, a limitation we acknowledge. \\
 
 \noindent It is important to emphasize that smoothing operates solely on the dependent variable (label construction), not on the feature space. This asymmetric treatment avoids the double-smoothing problem noted above and ensures that the predictors retain the full information content of the raw market data.
+
+\noindent \textbf{Wavelet smoothing is non-causal.} The DWT
+filter described above is a two-sided filter: at any date~$t$
+it weights observations at $t', t' > t$, when reconstructing the
+denoised series. Wavelet-smoothed labels therefore embed
+forward-looking information that would not be available to a
+real-time forecaster. We retain the wavelet-smoothed protocol
+in this section because it describes the originally-implemented
+pipeline whose accuracy figures are reported in
+Section~\ref{sec:results}, but the leakage-safe reassessment in
+Section~\ref{sec:addendum} replaces it with raw realised returns
+$y_t = \mathbf{1}\{P_{t+h} > P_t\}$, a strictly causal label,
+and treats the wavelet variant as a robustness comparison only.
+The interaction between the leakage-safe protocol and label
+smoothing is analysed in
+\texttt{docs/audit/03\_label\_leakage\_report.md} of the
+companion repository.
 
 \subsection{Target variable, model estimation, and feature selection}
 
@@ -944,7 +970,7 @@ rank models that are statistically tied with chance in absolute
 terms. \\
 
 \noindent \textit{The leakage-safe predictions do not generate
-economic value net of costs on this asset.} A long-only sign-
+economic value net of costs on this asset.} A long/short sign-
 following strategy applied to the leakage-safe out-of-fold
 predictions, with $10$ basis points charged per round trip,
 underperforms passive buy-and-hold at every horizon
@@ -972,7 +998,7 @@ left for a follow-up. Inference is reported by uncorrected
 pairwise Diebold-Mariano $p$-values; Romano-Wolf
 \citep{romano2005stepwise} or Hansen-SPA \citep{hansen2005test}
 adjustments would tighten the model-selection conclusions. The
-backtest considers only sign-following long-only and threshold
+backtest considers only sign-following long/short and threshold
 strategies at fixed transaction-cost levels; long-short rules,
 volatility targeting, and slippage modelling are not yet
 incorporated. Balanced-accuracy and Brier metrics, which would
@@ -1071,9 +1097,20 @@ default; see~\texttt{docs/audit/03\_label\_leakage\_report.md}).
 Settings: $5$ outer Purged K-Folds, $2$ inner folds, $5$ Optuna
 trials per (outer fold, model), Boruta \texttt{max\_iter}=20,
 seed~42, three tree backends (XGBoost, Random~Forest, LightGBM)
-out of the original five. Reduced trial budgets are used because
-the full sweep is multi-hour per asset. Even with the
-reduction, the headline gap is statistically unmistakable.
+out of the original five used in
+Section~\ref{sec:results}. CatBoost and the scikit-learn
+Gradient Boosting reference are omitted from the leakage-safe
+nested-CV harness because their per-fold compute footprint
+(roughly five times that of LightGBM at the same trial count)
+makes the full $5 \times 5 \times 50$ outer-fold-by-trial
+sweep infeasible on the single GPU available; the consequences
+of this restriction for the model ranking are discussed in
+Section~\ref{sec:addendum_caveats}. Reduced Optuna and Boruta
+budgets are used for the same compute reason. Even with the
+reduction, the headline accuracy gap against the published-style
+$0.730$ is statistically unmistakable; whether the magnitude of
+the gap is preserved under a matched-budget protocol is the
+subject of Section~\ref{sec:addendum_caveats}.
 
 \begin{table}[H]
 \centering
@@ -1180,6 +1217,40 @@ $f1$ near 0.50 is consistent with this reading. Confirming this
 requires a balanced-accuracy or Brier-score follow-up, deferred
 to the metric-upgrade audit item C-26.
 
+\subsection{Caveats on the leakage-safe gap measurement}
+\label{sec:addendum_caveats}
+
+Three caveats temper the interpretation of the headline gap.
+First, the leakage-safe nested-CV results in
+Tables~\ref{tab:addendum_aapl_h1} and~\ref{tab:addendum_aapl_window}
+were generated with $5$~Optuna trials per (outer fold, model)
+and $2$~inner Purged folds, settings selected to keep
+single-asset compute tractable; the published-style results in
+Section~\ref{sec:results} were generated with $50$~trials and
+$5$~inner folds, the original budget of the legacy pipeline.
+The 22-percentage-point gap therefore confounds two changes: the
+removal of selection-and-tuning leakage, and a reduction in
+hyperparameter-search depth. The intuition that a richer Optuna
+budget could close some of the gap cannot be ruled out from the
+data on hand. A matched-budget run with $50$ trials and $5$
+inner folds under the leakage-safe protocol is the single
+strongest robustness check we have not yet run, and the
+remainder of this section's quantitative claims should be read
+with that caveat in place. Second, the leakage-safe analysis
+covers three of the five tree-based architectures used in
+Section~\ref{sec:results} (XGBoost, Random~Forest, LightGBM);
+CatBoost and the scikit-learn Gradient Boosting reference were
+omitted from the nested-CV harness for the same compute reason
+and are not represented in the leakage-safe accuracy column.
+Since CatBoost was the AUC leader under the published-style
+protocol, restoring it under the leakage-safe protocol could
+materially affect the model-comparison conclusions of
+Section~\ref{sec:addendum_inference}. Third, the empirical
+window is single-asset; the panel-wide $25 \times 5$
+nested-CV sweep is the natural generalisation step and is
+gated on multi-day compute, as documented in
+\texttt{docs/audit/07\_nested\_cv\_first\_run.md}.
+
 \subsection{Block-bootstrap inference and pairwise Diebold-Mariano}
 \label{sec:addendum_inference}
 
@@ -1222,8 +1293,12 @@ the row model has strictly lower 0/1 loss. Newey-West HAC lag
 set to $h-1$; Harvey-Leybourne-Newbold (1997) correction
 applied. p-values are uncorrected for the nine simultaneous
 tests; a Bonferroni-style adjustment at $\alpha=0.05$ would
-require $p<0.0056$ and would retain only the $h=5$ RF vs.\ XGB
-comparison.}
+require $p<0.0056$. The smallest $p$-value in
+Table~\ref{tab:addendum_dm} is $0.007$ ($h=5$, RF vs.\ XGBoost),
+which fails the Bonferroni threshold; under this conservative
+correction \emph{none} of the nine pairwise comparisons survives,
+so the model ranking discussed below should be read as
+suggestive rather than decisive.}
 \label{tab:addendum_dm}
 \scriptsize
 \begin{tabular}{lllrrl}
@@ -1251,16 +1326,15 @@ at $h=15$. LightGBM is the worst of the three at every horizon.
 This is a comparison of \emph{relative} loss between models
 fit and predicted on identical folds, so it carries information
 even when each model's accuracy CI overlaps the chance level
-$0.50$. The reading is therefore that the model ranking is real,
-but ranks models that, in absolute terms, are statistically
-indistinguishable from a coin flip at $h \ge 5$.
-
-The Diebold-Mariano p-values in
-Table~\ref{tab:addendum_dm} are uncorrected. A Romano-Wolf or
-Hansen-SPA adjustment for the nine simultaneous tests is the
-appropriate next step before drawing model-selection conclusions
-from this table; the Bonferroni heuristic noted in the caption
-is conservative.
+$0.50$. The reading is therefore that the model ranking is
+suggestive, but ranks models that, in absolute terms, are
+statistically indistinguishable from a coin flip at $h \ge 5$.
+Under a conservative Bonferroni correction at $\alpha = 0.05$
+none of the nine $p$-values clears the $0.0056$ threshold; a
+Romano-Wolf or Hansen-SPA adjustment, which exploits the
+correlation structure between the test statistics, is the
+appropriate next step before any decisive model-selection claim
+is drawn from this table.
 
 \subsection{Hyperparameter drift across outer folds}
 
@@ -1326,9 +1400,12 @@ The statistical reassessment in
 Sections~\ref{sec:addendum}.3-\ref{sec:addendum_inference} is
 necessary but not sufficient for an economic claim. We translate
 the leakage-safe out-of-fold predictions for each model and
-horizon into a sign-following long-only strategy, holding the
-asset for the full label horizon and unwinding at the next
-non-overlapping entry. Per-trade transaction costs are charged at
+horizon into a sign-following long/short strategy: position
+$+1$ when the model predicts UP and $-1$ when it predicts DOWN,
+held for the full label horizon and unwound at the next
+non-overlapping entry. The position therefore takes a short
+exposure on every DOWN prediction; the strategy is not
+long-only. Per-trade transaction costs are charged at
 $10$ basis points per round trip, a level consistent with retail
 spreads and expected slippage on a liquid single-name equity such
 as AAPL.
@@ -1417,14 +1494,22 @@ agencies in the public, commercial, or not-for-profit sectors.
 \section*{Data availability statement}
 
 The empirical analysis uses publicly available daily OHLCV data
-for 25~U.S.\ equities, downloaded from Yahoo Finance via the
-\texttt{yfinance} Python package and committed as immutable
-Parquet snapshots under \texttt{data/snapshots/} in the companion
-repository. Each snapshot is versioned by ticker and date range
-and accompanied by metadata recording the \texttt{yfinance}
-version, the UTC capture time, and the row count, so that any
-reproducer reads byte-identical inputs to those used in this
-paper.
+downloaded from Yahoo Finance via the \texttt{yfinance} Python
+package. The single-asset leakage-safe results in
+Section~\ref{sec:addendum} use the AAPL snapshot
+(\texttt{data/snapshots/AAPL\_2020-01-01\_2024-12-31.parquet}),
+which is committed to the companion repository as an immutable
+Parquet file accompanied by metadata recording the
+\texttt{yfinance} version, the UTC capture time, and the row
+count, so that any reproducer reads byte-identical inputs to those
+used in this paper. The published-style results in
+Section~\ref{sec:results} use the full 25-ticker panel; those
+snapshots have not yet been committed because the panel-wide
+nested-CV sweep that consumes them is gated on multi-day compute
+and is left for a follow-up. The CLI driver
+\texttt{scripts/snapshot\_data.py} re-fetches and pins any
+ticker on demand from the same vintage of \texttt{yfinance};
+running it without arguments produces the full 25-snapshot set.
 
 \section*{Code availability statement}
 
