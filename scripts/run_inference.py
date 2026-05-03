@@ -37,6 +37,7 @@ from src.inference import (  # noqa: E402
     block_bootstrap_accuracy,
     pairwise_diebold_mariano,
     recommended_block_size,
+    romano_wolf_dm,
 )
 
 RESULTS_DIR = REPO_ROOT / "results"
@@ -125,7 +126,8 @@ def main() -> int:
                   f"CI=[{ci.lower:.3f}, {ci.upper:.3f}] "
                   f"block={block} n={n}")
 
-        # Pairwise DM across models within each (ticker, horizon).
+        # Pairwise DM across models within each (ticker, horizon),
+        # plus Romano-Wolf step-down adjustment of the same family.
         for ticker, sub in preds.groupby("ticker"):
             sub = sub.sort_values(["model", "date"]).reset_index(drop=True)
             losses_by_model: dict[str, np.ndarray] = {}
@@ -134,10 +136,30 @@ def main() -> int:
                 yt = g["y_true"].astype(int).to_numpy()
                 yp = g["y_pred"].astype(int).to_numpy()
                 losses_by_model[model_name] = (yt != yp).astype(float)
-            rows = pairwise_diebold_mariano(losses_by_model, h=h)
+            # Block size for the per-(model, horizon) bootstrap; we
+            # reuse the lag-1 autocorrelation logic from the CI block,
+            # taking the maximum block across the participating models
+            # so the same resampled time index is consistent for all
+            # K = M(M-1)/2 pairs.
+            block_sizes = []
+            for arr in losses_by_model.values():
+                rho_l = (
+                    float(np.corrcoef(arr[:-1], arr[1:])[0, 1])
+                    if len(arr) > 2 and arr.std() > 0 else 0.0
+                )
+                block_sizes.append(
+                    max(h, recommended_block_size(len(arr), autocorr_lag1=rho_l))
+                )
+            rw_block = max(block_sizes) if block_sizes else max(h, 5)
+            rows = romano_wolf_dm(
+                losses_by_model, h=h,
+                expected_block_size=rw_block,
+                n_boot=args.n_boot, seed=args.seed,
+            )
             for row in rows:
                 row["ticker"] = ticker
                 row["horizon"] = h
+                row["rw_block_size"] = rw_block
             dm_rows.extend(rows)
 
         print()
@@ -168,12 +190,17 @@ def main() -> int:
     print(f"Wrote {snap_path}")
     print()
 
-    print("=== Pairwise Diebold-Mariano (negative stat = A has lower loss) ===")
+    print("=== Pairwise Diebold-Mariano + Romano-Wolf (negative stat = A has lower loss) ===")
     if not dm_df.empty:
-        out = dm_df[["horizon", "model_a", "model_b",
-                     "dm_stat", "p_value", "n", "lag"]].copy()
+        cols = ["horizon", "model_a", "model_b",
+                "dm_stat", "p_value", "rw_p_value",
+                "bonferroni_p_value", "n", "lag"]
+        cols = [c for c in cols if c in dm_df.columns]
+        out = dm_df[cols].copy()
         out["dm_stat"] = out["dm_stat"].round(3)
-        out["p_value"] = out["p_value"].round(4)
+        for col in ("p_value", "rw_p_value", "bonferroni_p_value"):
+            if col in out.columns:
+                out[col] = out[col].round(4)
         print(out.to_string(index=False))
     return 0
 

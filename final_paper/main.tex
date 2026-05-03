@@ -1000,13 +1000,21 @@ net of costs over the same out-of-fold window. \\
 \noindent \textbf{Limitations.} Several caveats apply. The
 empirical evidence is single-asset; the panel-wide nested-CV
 sweep across the other 24 tickers is gated on compute and is
-left for a follow-up. Inference is reported by uncorrected
-pairwise Diebold-Mariano $p$-values; Romano-Wolf
-\citep{romano2005stepwise} or Hansen-SPA \citep{hansen2005test}
-adjustments would tighten the model-selection conclusions. The
-backtest considers only sign-following long/short and threshold
-strategies at fixed transaction-cost levels; long-short rules,
-volatility targeting, and slippage modelling are not yet
+left for a follow-up (the data-side prerequisite, immutable
+Parquet snapshots for all 25 tickers, is committed to the
+companion repository). The Diebold-Mariano comparisons in
+Table~\ref{tab:addendum_dm} are reported with the Romano-Wolf
+step-down adjustment \citep{romano2005stepwise}, which controls
+the family-wise error rate over the three within-horizon pairs;
+under that adjustment none of the nine pairwise comparisons
+clears $\alpha = 0.05$, and the model ranking is therefore not
+identifiable on this single asset. Hansen's superior predictive
+ability test \citep{hansen2005test} and White's Reality Check
+\citep{white2000reality} would provide more powerful
+multiple-testing benchmarks if a stronger model-selection claim
+were needed. The backtest considers only sign-following
+long/short and threshold strategies at fixed transaction-cost
+levels; volatility targeting and slippage modelling are not yet
 incorporated. Balanced-accuracy and Brier metrics, which would
 clarify whether the $h=15$ point estimate is partly a class-
 imbalance artefact, are deferred to a metric-upgrade revision. \\
@@ -1294,55 +1302,55 @@ correctness series.
 \begin{table}[H]
 \centering
 \caption{Pairwise Diebold-Mariano tests between leakage-safe
-models on the same OOF predictions. Negative DM statistic means
-the row model has strictly lower 0/1 loss. Newey-West HAC lag
-set to $h-1$; Harvey-Leybourne-Newbold (1997) correction
-applied. p-values are uncorrected for the nine simultaneous
-tests; a Bonferroni-style adjustment at $\alpha=0.05$ would
-require $p<0.0056$. The smallest $p$-value in
-Table~\ref{tab:addendum_dm} is $0.007$ ($h=5$, RF vs.\ XGBoost),
-which fails the Bonferroni threshold; under this conservative
-correction \emph{none} of the nine pairwise comparisons survives,
-so the model ranking discussed below should be read as
-suggestive rather than decisive.}
+models on the same OOF predictions, together with the
+Romano-Wolf step-down adjusted $p$-values
+\citep{romano2005stepwise} that control the family-wise error
+rate (FWER) over the three pairs at each horizon. Negative DM
+statistic means the row model has strictly lower 0/1 loss;
+Newey-West HAC lag set to $h-1$; Harvey-Leybourne-Newbold (1997)
+correction applied to the DM stat itself. The Romano-Wolf
+column is computed by stationary block bootstrap on the
+correctness series with $n_{\text{boot}}=4000$ and the
+correlation-aware block sizes from
+Section~\ref{sec:addendum_inference}; it dominates a
+conservative Bonferroni-Holm benchmark by exploiting the
+empirical correlation between the three pair statistics within
+each horizon.}
 \label{tab:addendum_dm}
 \scriptsize
-\begin{tabular}{lllrrl}
+\begin{tabular}{lllrrrl}
 \toprule
-\textbf{Horizon} & \textbf{Model A} & \textbf{Model B} & \textbf{DM stat} & \textbf{p-value} & \textbf{Verdict ($\alpha=0.05$)} \\
+\textbf{Horizon} & \textbf{Model A} & \textbf{Model B} & \textbf{DM stat} & \textbf{Raw $p$} & \textbf{RW $p^{*}$} & \textbf{Verdict ($\alpha=0.05$)} \\
 \midrule
-$h=1$  & LightGBM & RF      & $+2.05$ & 0.041 & RF beats LightGBM \\
-$h=1$  & LightGBM & XGBoost & $+0.28$ & 0.777 & tied \\
-$h=1$  & RF       & XGBoost & $-1.79$ & 0.074 & RF beats XGBoost (marginal) \\
-$h=5$  & LightGBM & RF      & $+2.27$ & 0.023 & RF beats LightGBM \\
-$h=5$  & LightGBM & XGBoost & $-0.11$ & 0.909 & tied \\
-$h=5$  & RF       & XGBoost & $-2.68$ & 0.007 & RF beats XGBoost \\
-$h=15$ & LightGBM & RF      & $-0.44$ & 0.660 & tied \\
-$h=15$ & LightGBM & XGBoost & $+1.70$ & 0.090 & XGBoost beats LightGBM (marginal) \\
-$h=15$ & RF       & XGBoost & $+1.99$ & 0.047 & XGBoost beats RF \\
+$h=1$  & LightGBM & RF      & $+2.05$ & 0.041 & 0.072 & tied \\
+$h=1$  & LightGBM & XGBoost & $+0.28$ & 0.777 & 0.770 & tied \\
+$h=1$  & RF       & XGBoost & $-1.79$ & 0.074 & 0.104 & tied \\
+$h=5$  & LightGBM & RF      & $+2.27$ & 0.023 & 0.095 & tied \\
+$h=5$  & LightGBM & XGBoost & $-0.11$ & 0.909 & 0.935 & tied \\
+$h=5$  & RF       & XGBoost & $-2.68$ & 0.007 & 0.051 & tied (marginal) \\
+$h=15$ & LightGBM & RF      & $-0.44$ & 0.660 & 0.632 & tied \\
+$h=15$ & LightGBM & XGBoost & $+1.70$ & 0.090 & 0.136 & tied \\
+$h=15$ & RF       & XGBoost & $+1.99$ & 0.047 & 0.081 & tied \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-\noindent The DM tests yield a stable qualitative ranking that
-the absolute-accuracy CIs cannot: Random Forest dominates at
-$h \le 5$ (decisively over LightGBM at both horizons,
-significantly over XGBoost at $h=5$), and XGBoost takes the lead
-at $h=15$. LightGBM is the worst of the three at every horizon.
-This is a comparison of \emph{relative} loss between models
-fit and predicted on identical folds, so it carries information
-even when each model's accuracy CI overlaps the chance level
-$0.50$. The reading is therefore that the model ranking is
-suggestive, but ranks models that, in absolute terms, are
-statistically indistinguishable from a coin flip at $h \ge 5$.
-Under a conservative Bonferroni correction at $\alpha = 0.05$
-none of the nine $p$-values clears the $0.0056$ threshold; a
-Romano-Wolf or Hansen-SPA adjustment, which exploits the
-correlation structure between the test statistics, is the
-appropriate next step before any decisive model-selection claim
-is drawn from this table. In the same spirit, the deflated
-Sharpe ratio of \citet{bailey2014deflated} provides a
-multiple-testing-aware criterion for the related question of
+\noindent The Romano-Wolf adjustment overturns the tentative
+model-selection reading suggested by the raw $p$-values. The raw
+column on its own would suggest a stable qualitative ranking
+(Random Forest above LightGBM at $h \le 5$, XGBoost above RF at
+$h=15$); under FWER control across the three within-horizon
+pairs, none of the nine adjusted $p$-values clears
+$0.05$. The smallest, $h=5$ RF versus XGBoost, is $0.051$, on
+the edge of the conventional threshold. The headline reading is
+therefore that the leakage-safe analysis cannot tell the three
+tree backends apart in pairwise loss-difference terms once
+multiple-testing is honestly accounted for. A more powerful
+test such as Hansen's SPA \citep{hansen2005test} or White's
+Reality Check \citep{white2000reality} is the natural next step
+if a sharper model-selection claim is needed; in the same spirit,
+the deflated Sharpe ratio of \citet{bailey2014deflated} provides
+a multiple-testing-aware criterion for the related question of
 whether any \emph{strategy} (rather than any model) attains
 genuine economic significance once the number of trials is
 controlled for.

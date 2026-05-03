@@ -29,6 +29,7 @@ from src.inference import (  # noqa: E402
     diebold_mariano,
     pairwise_diebold_mariano,
     recommended_block_size,
+    romano_wolf_dm,
     stationary_block_bootstrap,
 )
 
@@ -223,3 +224,101 @@ def test_recommended_block_size_grows_with_persistence():
     bs_low  = recommended_block_size(1000, autocorr_lag1=0.0)
     bs_high = recommended_block_size(1000, autocorr_lag1=0.9)
     assert bs_high > bs_low
+
+
+# ---------------------------------------------------------------------------
+# Romano-Wolf step-down adjustment
+# ---------------------------------------------------------------------------
+
+def test_romano_wolf_dominance_survives_correction():
+    """Under clear dominance, Romano-Wolf adjusted p-value still rejects.
+
+    A: zero-loss; B,C: heavy positive loss (A dominates). Even after
+    FWER control over three pairs the dominance result must survive.
+    """
+    rng = np.random.default_rng(0)
+    n = 600
+    A = rng.uniform(0, 0.05, n)
+    B = rng.uniform(0.4, 0.6, n)
+    C = rng.uniform(0.5, 0.7, n)
+    rows = romano_wolf_dm(
+        {"A": A, "B": B, "C": C},
+        h=1, expected_block_size=5, n_boot=500, seed=0,
+    )
+    assert len(rows) == 3
+    # The (A, B) and (A, C) pair must clear FWER 0.05 by a wide margin.
+    by_pair = {(r["model_a"], r["model_b"]): r for r in rows}
+    assert by_pair[("A", "B")]["rw_p_value"] < 0.05
+    assert by_pair[("A", "C")]["rw_p_value"] < 0.05
+
+
+def test_romano_wolf_no_signal_does_not_reject():
+    """All-equal losses produce no rejection under FWER control."""
+    rng = np.random.default_rng(1)
+    n = 400
+    L = rng.uniform(0, 1, n)
+    rows = romano_wolf_dm(
+        {"A": L, "B": L.copy(), "C": L.copy()},
+        h=1, expected_block_size=4, n_boot=300, seed=1,
+    )
+    assert all(r["rw_p_value"] >= 0.05 for r in rows)
+
+
+def test_romano_wolf_is_at_least_as_strict_as_raw():
+    """Adjusted p-value should be >= raw p-value for every comparison.
+
+    This is the defining property of an FWER-controlling step-down.
+    """
+    rng = np.random.default_rng(2)
+    n = 500
+    A = rng.uniform(0, 0.4, n)
+    B = rng.uniform(0.05, 0.45, n)
+    C = rng.uniform(0.10, 0.50, n)
+    rows = romano_wolf_dm(
+        {"A": A, "B": B, "C": C},
+        h=1, expected_block_size=5, n_boot=500, seed=2,
+    )
+    for r in rows:
+        assert r["rw_p_value"] >= r["p_value"] - 1e-9
+
+
+def test_romano_wolf_monotone_along_t_order():
+    """RW p-values are non-decreasing as |t| decreases (step-down property)."""
+    rng = np.random.default_rng(3)
+    n = 400
+    A = rng.uniform(0, 0.5, n)
+    B = rng.uniform(0.2, 0.7, n)
+    C = rng.uniform(0.3, 0.8, n)
+    D = rng.uniform(0.4, 0.9, n)
+    rows = romano_wolf_dm(
+        {"A": A, "B": B, "C": C, "D": D},
+        h=1, expected_block_size=5, n_boot=400, seed=3,
+    )
+    # Sort rows by descending |dm_stat| and verify rw_p is non-decreasing.
+    rows_sorted = sorted(rows, key=lambda r: -abs(r["dm_stat"]))
+    rw_seq = [r["rw_p_value"] for r in rows_sorted]
+    assert all(rw_seq[i] <= rw_seq[i + 1] + 1e-9
+               for i in range(len(rw_seq) - 1))
+
+
+def test_romano_wolf_tighter_than_bonferroni_under_correlation():
+    """When pairs share data, Romano-Wolf should usually be tighter
+    than Holm (Bonferroni-style) on the smallest p-value, because it
+    accounts for the empirical correlation between the pair statistics.
+    The inequality is statistical (not deterministic), so we use a
+    margin and a fixed seed and only require the smallest RW p-value
+    to be no larger than the corresponding Holm p-value.
+    """
+    rng = np.random.default_rng(4)
+    n = 500
+    base = rng.uniform(0, 1, n)
+    A = base + rng.normal(0, 0.05, n)
+    B = base + 0.30 + rng.normal(0, 0.05, n)
+    C = base + 0.32 + rng.normal(0, 0.05, n)
+    rows = romano_wolf_dm(
+        {"A": A, "B": B, "C": C},
+        h=1, expected_block_size=5, n_boot=500, seed=4,
+    )
+    rw_min = min(r["rw_p_value"] for r in rows)
+    bonf_min = min(r["bonferroni_p_value"] for r in rows)
+    assert rw_min <= bonf_min + 1e-9

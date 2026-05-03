@@ -325,3 +325,160 @@ def pairwise_diebold_mariano(
                 "lag": res.lag,
             })
     return rows
+
+
+# ---------------------------------------------------------------------------
+# Romano-Wolf step-down adjustment for the pairwise DM matrix
+# ---------------------------------------------------------------------------
+
+def romano_wolf_dm(
+    losses_by_model: dict[str, np.ndarray],
+    *,
+    h: int = 1,
+    lag: int | None = None,
+    expected_block_size: int,
+    n_boot: int = 4000,
+    seed: int = 42,
+) -> list[dict]:
+    r"""Romano-Wolf step-down FWER-adjusted p-values for pairwise DM tests.
+
+    Implements the studentized step-down procedure of
+    Romano and Wolf (2005, Econometrica). On the same family of
+    pairwise hypotheses that :func:`pairwise_diebold_mariano`
+    evaluates, this routine returns p-values that strongly control
+    the family-wise error rate under arbitrary dependence between
+    the test statistics.
+
+    The bootstrap re-uses :func:`stationary_block_bootstrap` so that
+    the resampled losses preserve the serial dependence structure
+    of the correctness series; HAC variances are recomputed inside
+    each bootstrap replication. ``expected_block_size`` should be
+    set to the same value used by :func:`block_bootstrap_accuracy`
+    on the same series (typically the
+    :func:`recommended_block_size` proxy or ``max(h,
+    recommended)``).
+
+    Returns the same flat list-of-dicts shape as
+    :func:`pairwise_diebold_mariano`, with three additional fields:
+
+    - ``rw_p_value``: the Romano-Wolf step-down adjusted p-value.
+    - ``rw_reject_05``: boolean indicating whether ``rw_p_value <
+      0.05``.
+    - ``bonferroni_p_value``: the conservative Bonferroni-Holm
+      adjusted p-value, included as a benchmark.
+
+    Notes
+    -----
+    Unlike Bonferroni, Romano-Wolf exploits the empirical
+    correlation structure between the K test statistics and is
+    therefore generally tighter (less conservative). The
+    monotonicity step at the end ensures the adjusted p-values
+    are non-decreasing in the original |statistic| ordering, which
+    is required for the procedure to be a valid step-down.
+    """
+    names = list(losses_by_model.keys())
+    M = len(names)
+    if M < 2:
+        return []
+
+    # Pin the canonical pair ordering (matches pairwise_diebold_mariano).
+    pairs: list[tuple[str, str]] = []
+    for i, a in enumerate(names):
+        for b in names[i + 1:]:
+            pairs.append((a, b))
+    K = len(pairs)
+
+    # Validate equal-length losses.
+    n = None
+    losses = {}
+    for m, arr in losses_by_model.items():
+        a = np.asarray(arr, dtype=float)
+        if n is None:
+            n = a.size
+        elif a.size != n:
+            raise ValueError(f"loss arrays must have the same length; "
+                             f"got {a.size} for '{m}' vs {n}")
+        losses[m] = a
+    if n is None or n < 4:
+        return []
+
+    if lag is None:
+        lag = max(0, h - 1)
+
+    # Observed DM stats.
+    obs_stats = np.zeros(K)
+    obs_pvals = np.zeros(K)
+    for k, (a, b) in enumerate(pairs):
+        res = diebold_mariano(losses[a], losses[b], lag=lag, h=h)
+        obs_stats[k] = res.statistic
+        obs_pvals[k] = res.p_value
+
+    # Stationary block bootstrap of the time index.
+    boot_idx = stationary_block_bootstrap(
+        n, expected_block_size=expected_block_size,
+        n_boot=n_boot, seed=seed,
+    )
+
+    # For each bootstrap replication, recompute the K DM stats and
+    # center on the observed stat.
+    boot_centered = np.zeros((n_boot, K))
+    for r in range(n_boot):
+        idx = boot_idx[r]
+        for k, (a, b) in enumerate(pairs):
+            d = losses[a][idx] - losses[b][idx]
+            var_d = _newey_west_var(d, lag)
+            if var_d <= 0 or not np.isfinite(var_d):
+                boot_centered[r, k] = 0.0
+                continue
+            stat = float(d.mean() / np.sqrt(var_d))
+            factor = np.sqrt(
+                (n + 1 - 2 * h + h * (h - 1) / n) / n
+            )
+            if not np.isfinite(factor) or factor <= 0:
+                factor = 1.0
+            stat *= factor
+            boot_centered[r, k] = stat - obs_stats[k]
+
+    # Studentized step-down: order observed |t| descending.
+    abs_obs = np.abs(obs_stats)
+    order = np.argsort(-abs_obs)  # descending
+    rw_pvals = np.ones(K)
+    for step in range(K):
+        # Remaining hypotheses at this step: order[step:].
+        remaining = order[step:]
+        # max |centered bootstrap stat| over remaining hypotheses.
+        max_boot = np.max(np.abs(boot_centered[:, remaining]), axis=1)
+        # Adjusted p-value at this step: P(max_boot >= |t_step|).
+        threshold = abs_obs[order[step]]
+        rw_pvals[order[step]] = float(
+            np.mean(max_boot >= threshold)
+        )
+    # Enforce monotonicity along the descending-|t| order.
+    for k in range(1, K):
+        if rw_pvals[order[k]] < rw_pvals[order[k - 1]]:
+            rw_pvals[order[k]] = rw_pvals[order[k - 1]]
+
+    # Bonferroni-Holm benchmark.
+    holm_pvals = np.ones(K)
+    sorted_idx = np.argsort(obs_pvals)
+    running_max = 0.0
+    for rank, k in enumerate(sorted_idx):
+        adj = (K - rank) * obs_pvals[k]
+        running_max = max(running_max, min(1.0, adj))
+        holm_pvals[k] = running_max
+
+    # Assemble output rows.
+    rows: list[dict] = []
+    for k, (a, b) in enumerate(pairs):
+        rows.append({
+            "model_a": a,
+            "model_b": b,
+            "dm_stat": float(obs_stats[k]),
+            "p_value": float(obs_pvals[k]),
+            "rw_p_value": float(rw_pvals[k]),
+            "rw_reject_05": bool(rw_pvals[k] < 0.05),
+            "bonferroni_p_value": float(holm_pvals[k]),
+            "n": int(n),
+            "lag": int(lag),
+        })
+    return rows
