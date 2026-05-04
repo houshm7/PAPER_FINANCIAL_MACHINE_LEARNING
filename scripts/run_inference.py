@@ -46,10 +46,17 @@ from src.inference import (  # noqa: E402
 RESULTS_DIR = REPO_ROOT / "results"
 
 
-def _predictions_path_for(horizon: int) -> Path:
+def _predictions_path_for(horizon: int, base_dir: Path = RESULTS_DIR) -> Path:
     if horizon == 1:
-        return RESULTS_DIR / "nested_cv_predictions.csv"
-    return RESULTS_DIR / f"nested_cv_h{horizon}" / "nested_cv_predictions.csv"
+        # Two layouts are supported. The default project layout puts the
+        # h=1 predictions directly in the results directory; matched-budget
+        # or single-horizon side runs prefer to keep the predictions in
+        # the same directory they will write to.
+        primary = base_dir / "nested_cv_predictions.csv"
+        if primary.exists():
+            return primary
+        return base_dir / "nested_cv_h1" / "nested_cv_predictions.csv"
+    return base_dir / f"nested_cv_h{horizon}" / "nested_cv_predictions.csv"
 
 
 def parse_args() -> argparse.Namespace:
@@ -72,7 +79,7 @@ def main() -> int:
     horizons = args.horizons
     if horizons is None:
         horizons = [h for h in (1, 2, 5, 10, 15)
-                    if _predictions_path_for(h).exists()]
+                    if _predictions_path_for(h, base_dir=results_dir).exists()]
     if not horizons:
         print("No predictions found. Run scripts/run_nested_cv.py first.",
               file=sys.stderr)
@@ -91,7 +98,7 @@ def main() -> int:
     dm_rows: list[dict] = []
 
     for h in horizons:
-        path = _predictions_path_for(h)
+        path = _predictions_path_for(h, base_dir=results_dir)
         preds = pd.read_csv(path, parse_dates=["date"])
         # Predictions are tagged with model; we treat each (ticker,
         # model) as an independent series.

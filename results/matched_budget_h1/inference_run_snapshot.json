@@ -1,0 +1,11 @@
+{
+  "timestamp_utc": "2026-05-04T19:21:20.781634+00:00",
+  "horizons": [
+    1
+  ],
+  "n_boot": 4000,
+  "alpha": 0.05,
+  "seed": 42,
+  "n_ci_rows": 4,
+  "n_dm_rows": 6
+}

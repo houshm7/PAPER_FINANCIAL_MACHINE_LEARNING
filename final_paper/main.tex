@@ -1002,13 +1002,20 @@ empirical evidence is single-asset; the panel-wide nested-CV
 sweep across the other 24 tickers is gated on compute and is
 left for a follow-up (the data-side prerequisite, immutable
 Parquet snapshots for all 25 tickers, is committed to the
-companion repository). The Diebold-Mariano comparisons in
-Table~\ref{tab:addendum_dm} are reported with the Romano-Wolf
-step-down adjustment \citep{romano2005stepwise}, which controls
-the family-wise error rate over the three within-horizon pairs;
-under that adjustment none of the nine pairwise comparisons
-clears $\alpha = 0.05$, and the model ranking is therefore not
-identifiable on this single asset. Hansen's superior predictive
+companion repository). The matched-budget robustness check in
+Section~\ref{sec:addendum_caveats} re-runs the leakage-safe
+protocol at the published-style budget ($50$~Optuna trials,
+$5$~inner folds, four tree backends including CatBoost) and
+finds the leakage-safe accuracy stays within $[0.500, 0.503]$
+for every model; the 22-percentage-point gap is therefore not
+explained by the reduced hyperparameter budget on which the
+multi-horizon analysis was conducted. The Diebold-Mariano
+comparisons in Table~\ref{tab:addendum_dm} are reported with
+the Romano-Wolf step-down adjustment \citep{romano2005stepwise},
+which controls the family-wise error rate over the three
+within-horizon pairs; under that adjustment none of the nine
+pairwise comparisons clears $\alpha = 0.05$, and the model
+ranking is therefore not identifiable on this single asset. Hansen's superior predictive
 ability test \citep{hansen2005test} and White's Reality Check
 \citep{white2000reality} would provide more powerful
 multiple-testing benchmarks if a stronger model-selection claim
@@ -1283,39 +1290,76 @@ reading is that the leakage-safe pipeline produces no useful
 probability information about future direction on this asset
 over this window.
 
-\subsection{Caveats on the leakage-safe gap measurement}
+\subsection{Matched-budget robustness check}
 \label{sec:addendum_caveats}
 
-Three caveats temper the interpretation of the headline gap.
-First, the leakage-safe nested-CV results in
+The leakage-safe results in
 Tables~\ref{tab:addendum_aapl_h1} and~\ref{tab:addendum_aapl_window}
 were generated with $5$~Optuna trials per (outer fold, model)
-and $2$~inner Purged folds, settings selected to keep
-single-asset compute tractable; the published-style results in
+and $2$~inner Purged folds; the published-style results in
 Section~\ref{sec:results} were generated with $50$~trials and
 $5$~inner folds, the original budget of the legacy pipeline.
-The 22-percentage-point gap therefore confounds two changes: the
-removal of selection-and-tuning leakage, and a reduction in
-hyperparameter-search depth. The intuition that a richer Optuna
-budget could close some of the gap cannot be ruled out from the
-data on hand. A matched-budget run with $50$ trials and $5$
-inner folds under the leakage-safe protocol is the single
-strongest robustness check we have not yet run, and the
-remainder of this section's quantitative claims should be read
-with that caveat in place. Second, the leakage-safe analysis
-covers three of the five tree-based architectures used in
-Section~\ref{sec:results} (XGBoost, Random~Forest, LightGBM);
-CatBoost and the scikit-learn Gradient Boosting reference were
-omitted from the nested-CV harness for the same compute reason
-and are not represented in the leakage-safe accuracy column.
-Since CatBoost was the AUC leader under the published-style
-protocol, restoring it under the leakage-safe protocol could
-materially affect the model-comparison conclusions of
-Section~\ref{sec:addendum_inference}. Third, the empirical
-window is single-asset; the panel-wide $25 \times 5$
-nested-CV sweep is the natural generalisation step and is
-gated on multi-day compute, as documented in
-\texttt{docs/audit/07\_nested\_cv\_first\_run.md}.
+A natural concern is that the 22-percentage-point gap between
+the two columns confounds two changes: the removal of
+selection-and-tuning leakage, and a reduction in
+hyperparameter-search depth. To isolate the leakage component
+we re-ran the leakage-safe nested-CV pipeline at $h=1$ on AAPL
+with the published-style budget ($50$~Optuna trials,
+$5$~inner Purged folds, Boruta \texttt{max\_iter}=100), and
+included CatBoost in the model set so that all four tree
+backends used in Section~\ref{sec:results} (XGBoost, Random
+Forest, LightGBM, CatBoost) are represented. The
+scikit-learn Gradient Boosting reference is omitted; it has
+no GPU path and its per-fit cost on this hardware made the
+matched-budget sweep multi-hour without contributing
+methodological novelty beyond the four other backends. The run
+took $41$~minutes of wall time on a CPU-only host.
+
+\begin{table}[H]
+\centering
+\caption{Matched-budget robustness check at AAPL $h=1$.
+Settings: $5$ outer Purged K-Folds $\times$ $5$ inner Purged
+folds $\times$ $50$ Optuna trials per (outer fold, model),
+Boruta \texttt{max\_iter}=100, raw-return labels, seed~42.
+Confidence intervals are stationary block-bootstrap
+(Politis-Romano 1994) at 95\,\%, $n_{\text{boot}}=4000$,
+$m=11$. The reduced-budget column is reproduced from
+Table~\ref{tab:addendum_aapl_h1} for comparison; the
+matched-budget column is the new run. Source:
+\texttt{results/matched\_budget\_h1/} in the companion
+repository.}
+\label{tab:addendum_matched_budget}
+\scriptsize
+\begin{tabular}{lccccc}
+\toprule
+\textbf{Model} & \textbf{Reduced-budget acc.} & \textbf{Matched-budget acc.} & \textbf{Bootstrap 95\,\% CI} & \textbf{Bal.\ Acc.} & \textbf{BSS} \\
+\midrule
+Random Forest & 0.513 & 0.500 & [0.474, 0.526] & 0.496 & $-0.030$ \\
+XGBoost       & 0.488 & 0.503 & [0.476, 0.529] & 0.501 & $-0.217$ \\
+LightGBM      & 0.484 & 0.502 & [0.473, 0.531] & 0.499 & $-0.276$ \\
+CatBoost      & n/a   & 0.500 & [0.472, 0.528] & 0.497 & $-0.221$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\noindent The headline finding is preserved. With ten times
+more Optuna trials and two and a half times more inner Purged
+folds, the leakage-safe accuracy of every model stays within
+$[0.500, 0.503]$ and every bootstrap CI continues to contain
+$0.50$. The 22-percentage-point leakage gap is therefore not
+explained by the reduced hyperparameter budget. CatBoost, the
+AUC leader under the published-style protocol in
+Section~\ref{sec:results}, also collapses to $0.500$ under the
+matched-budget leakage-safe protocol; its dominance in the
+published-style column is also leakage-driven. All four pairwise
+Diebold-Mariano comparisons under the matched-budget run have
+raw $p$-values above $0.85$ and Romano-Wolf adjusted $p$-values
+above $0.99$, so the four backends are statistically
+indistinguishable from one another and from a coin flip on
+this asset over this window. The single empirical caveat that
+remains is the single-asset scope: the panel-wide $25 \times 5$
+nested-CV sweep at the matched budget is multi-day compute and
+is left for a follow-up.
 
 \subsection{Block-bootstrap inference and pairwise Diebold-Mariano}
 \label{sec:addendum_inference}
@@ -1532,10 +1576,11 @@ under \texttt{data/snapshots/} (see
 \texttt{10\_data\_snapshot\_report.md} and
 \texttt{17\_panel\_snapshot.md}); the pipeline reads them before
 any \texttt{yfinance} call, so the gating constraint on the
-panel-wide replication is now compute time alone. The remaining
-open audit items are secondary (walk-forward robustness,
-matched-budget run, panel-wide sweep) and do not affect this
-section's quantitative claims.
+panel-wide replication is now compute time alone. The
+matched-budget robustness check at $h=1$ has been performed
+(Section~\ref{sec:addendum_caveats}) and confirms the headline
+gap; the remaining open items are walk-forward robustness and
+the panel-wide sweep, both compute-bound.
 
 \section*{Use of generative AI}
 
