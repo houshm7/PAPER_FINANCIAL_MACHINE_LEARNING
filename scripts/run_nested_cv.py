@@ -96,6 +96,10 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--seed", type=int, default=42)
     p.add_argument("--results-dir", default=str(RESULTS_DIR))
     p.add_argument("--quiet", action="store_true")
+    p.add_argument("--show-progress", action="store_true",
+                   help="Print per-fold timing breakdown: Boruta, "
+                        "per-model tuning, final fit, and a running "
+                        "ETA after each outer fold completes.")
     return p.parse_args()
 
 
@@ -172,6 +176,7 @@ def main() -> int:
                 boruta_max_iter=args.boruta_max_iter,
                 seed=args.seed,
                 verbose=not args.quiet,
+                progress=args.show_progress,
             )
         except Exception as exc:
             print(f"[error] {ticker}: {exc!r}")

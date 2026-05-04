@@ -118,6 +118,7 @@ def run_nested_purged_cv(
     boruta_max_iter: int = 100,
     seed: int = 42,
     verbose: bool = True,
+    progress: bool = False,
 ) -> NestedCVResult:
     """Run a leakage-safe nested Purged K-Fold for one (ticker, window).
 
@@ -228,6 +229,7 @@ def run_nested_purged_cv(
         # 2) Boruta on the corr-filtered outer-train. Fall back gracefully
         #    if Boruta returns nothing or raises (small samples / pathology).
         # ------------------------------------------------------------------
+        t_boruta = time.time()
         try:
             confirmed, tentative, _, _ = boruta_selection(
                 X_tr[corr_selected], y_tr,
@@ -245,6 +247,9 @@ def run_nested_purged_cv(
             if verbose:
                 print(f"  Boruta confirmed 0 features in fold "
                       f"{outer_fold_id}; using {len(confirmed)} fallback.")
+        if progress:
+            print(f"  Boruta: {len(confirmed)} confirmed in "
+                  f"{time.time() - t_boruta:.1f}s")
 
         for f in confirmed:
             selected_features_rows.append({
@@ -262,6 +267,7 @@ def run_nested_purged_cv(
         # ------------------------------------------------------------------
         per_model_best: dict[str, dict] = {}
         for model_name in model_names:
+            t_tune = time.time()
             tuning_result = tune_model(
                 model_name,
                 X_tr_sel, y_tr, t1_tr,
@@ -271,6 +277,12 @@ def run_nested_purged_cv(
                 config=config,
             )
             per_model_best[model_name] = tuning_result["best_params"]
+            if progress:
+                best_score = tuning_result.get(
+                    "best_accuracy", tuning_result.get("best_score", float("nan"))
+                )
+                print(f"  Tuning [{model_name}]: best_acc={best_score:.4f} "
+                      f"in {time.time() - t_tune:.1f}s ({n_trials} trials)")
             for k, v in tuning_result["best_params"].items():
                 best_params_rows.append({
                     "ticker": ticker,
@@ -288,6 +300,7 @@ def run_nested_purged_cv(
         # ------------------------------------------------------------------
         models = create_models(config=config, hyperparams=per_model_best)
 
+        t_final = time.time()
         for model_name in model_names:
             if model_name not in models:
                 continue
@@ -324,8 +337,21 @@ def run_nested_purged_cv(
                 "n_test": int(len(y_te)),
             })
 
+        if progress:
+            print(f"  Final fit + predict (all models): "
+                  f"{time.time() - t_final:.1f}s")
         if verbose:
-            print(f"  fold {outer_fold_id + 1} done in {time.time() - t_start_fold:.1f}s")
+            fold_elapsed = time.time() - t_start_fold
+            elapsed_total = time.time() - t_start_total
+            folds_done = outer_fold_id + 1
+            folds_left = n_outer_splits - folds_done
+            avg_fold = elapsed_total / folds_done
+            eta_s = avg_fold * folds_left
+            eta_m, eta_sec = divmod(int(eta_s), 60)
+            print(f"  fold {folds_done}/{n_outer_splits} done in "
+                  f"{fold_elapsed:.1f}s; cumulative {elapsed_total:.0f}s; "
+                  f"ETA {eta_m}m{eta_sec:02d}s "
+                  f"({folds_left} folds remaining)")
 
     oof_df = pd.DataFrame(oof_rows)
     fold_df = pd.DataFrame(fold_metrics_rows)
