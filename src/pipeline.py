@@ -63,7 +63,7 @@ from .models import (
 )
 from .preprocessing import DEFAULT_LABEL_MODE, prepare_features_with_t1
 from .tuning import tune_model
-from .validation import PurgedKFold
+from .validation import PurgedKFold, WalkForwardCV
 
 
 # ---------------------------------------------------------------------------
@@ -119,6 +119,7 @@ def run_nested_purged_cv(
     seed: int = 42,
     verbose: bool = True,
     progress: bool = False,
+    outer_scheme: str = "purged_kfold",
 ) -> NestedCVResult:
     """Run a leakage-safe nested Purged K-Fold for one (ticker, window).
 
@@ -178,9 +179,21 @@ def run_nested_purged_cv(
             f"Too few samples ({len(X_all)}) for {n_outer_splits} outer folds."
         )
 
-    outer_pkf = PurgedKFold(
-        n_splits=n_outer_splits, t1=t1_all, pct_embargo=pct_embargo,
-    )
+    if outer_scheme == "purged_kfold":
+        outer_pkf = PurgedKFold(
+            n_splits=n_outer_splits, t1=t1_all, pct_embargo=pct_embargo,
+        )
+    elif outer_scheme == "walk_forward":
+        outer_pkf = WalkForwardCV(
+            n_splits=n_outer_splits,
+            min_train_fraction=0.4,
+            embargo=max(0, window - 1),
+        )
+    else:
+        raise ValueError(
+            f"unknown outer_scheme '{outer_scheme}'; "
+            f"expected 'purged_kfold' or 'walk_forward'"
+        )
 
     oof_rows: list[dict] = []
     fold_metrics_rows: list[dict] = []

@@ -100,6 +100,13 @@ def parse_args() -> argparse.Namespace:
                    help="Print per-fold timing breakdown: Boruta, "
                         "per-model tuning, final fit, and a running "
                         "ETA after each outer fold completes.")
+    p.add_argument("--outer-scheme", default="purged_kfold",
+                   choices=("purged_kfold", "walk_forward"),
+                   help="Outer-fold validation scheme. 'purged_kfold' "
+                        "(default) is the canonical leakage-safe scheme "
+                        "used in Section 5; 'walk_forward' is the "
+                        "expanding-window robustness alternative used "
+                        "in Section 5.6.")
     return p.parse_args()
 
 
@@ -177,6 +184,7 @@ def main() -> int:
                 seed=args.seed,
                 verbose=not args.quiet,
                 progress=args.show_progress,
+                outer_scheme=args.outer_scheme,
             )
         except Exception as exc:
             print(f"[error] {ticker}: {exc!r}")
