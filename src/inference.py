@@ -196,6 +196,84 @@ def block_bootstrap_accuracy(
 
 
 # ---------------------------------------------------------------------------
+# Class-imbalance-aware point metrics
+# ---------------------------------------------------------------------------
+
+def balanced_accuracy(y_true: np.ndarray, y_pred: np.ndarray) -> float:
+    r"""Balanced accuracy = mean of per-class recall.
+
+    For a binary label in :math:`\{-1, +1\}`,
+
+    .. math::
+        \text{BA} = \tfrac{1}{2} \bigl(\text{TPR} + \text{TNR}\bigr).
+
+    A trivial majority-class predictor scores 0.5 regardless of
+    the class imbalance, which makes balanced accuracy a robust
+    sanity check for whether an apparent gain over chance reflects
+    a directional signal or just exploitation of the marginal
+    class prior.
+    """
+    yt = np.asarray(y_true)
+    yp = np.asarray(y_pred)
+    if yt.shape != yp.shape:
+        raise ValueError("y_true and y_pred must have the same shape")
+    classes = np.unique(yt)
+    if classes.size == 0:
+        return float("nan")
+    recalls = []
+    for c in classes:
+        mask = (yt == c)
+        if mask.sum() == 0:
+            continue
+        recalls.append(float(np.mean(yp[mask] == c)))
+    if not recalls:
+        return float("nan")
+    return float(np.mean(recalls))
+
+
+def brier_score(y_true: np.ndarray, y_proba_pos: np.ndarray,
+                *, positive_label: int = 1) -> float:
+    r"""Brier score for binary directional forecasts.
+
+    .. math::
+        \text{Brier} = \frac{1}{n} \sum_t (\hat{p}_t - y_t)^2
+
+    where :math:`y_t \in \{0, 1\}` is the indicator that the true
+    label equals ``positive_label`` and :math:`\hat{p}_t` is the
+    forecast probability of that event. Lower is better; the
+    reference value for a constant predictor at the marginal
+    base rate :math:`\bar{y}` is :math:`\bar{y}(1 - \bar{y})`.
+    """
+    yt = np.asarray(y_true)
+    p = np.asarray(y_proba_pos, dtype=float)
+    if yt.shape != p.shape:
+        raise ValueError("y_true and y_proba_pos must have the same shape")
+    y01 = (yt == positive_label).astype(float)
+    return float(np.mean((p - y01) ** 2))
+
+
+def brier_skill_score(y_true: np.ndarray, y_proba_pos: np.ndarray,
+                      *, positive_label: int = 1) -> float:
+    r"""Brier skill score relative to the marginal base-rate predictor.
+
+    .. math::
+        \text{BSS} = 1 - \frac{\text{Brier}(\hat{p})}{\text{Brier}(\bar{y})}
+
+    Positive BSS indicates the forecast carries information beyond
+    the marginal class prior; zero means it is no better than
+    predicting the base rate; negative means worse.
+    """
+    yt = np.asarray(y_true)
+    p = np.asarray(y_proba_pos, dtype=float)
+    y01 = (yt == positive_label).astype(float)
+    base_rate = y01.mean() if y01.size else 0.5
+    ref = base_rate * (1.0 - base_rate)
+    if ref <= 0:
+        return float("nan")
+    return float(1.0 - np.mean((p - y01) ** 2) / ref)
+
+
+# ---------------------------------------------------------------------------
 # Diebold-Mariano
 # ---------------------------------------------------------------------------
 

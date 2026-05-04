@@ -24,8 +24,11 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from src.inference import (  # noqa: E402
+    balanced_accuracy,
     block_bootstrap_accuracy,
     block_bootstrap_metric,
+    brier_score,
+    brier_skill_score,
     diebold_mariano,
     pairwise_diebold_mariano,
     recommended_block_size,
@@ -322,3 +325,65 @@ def test_romano_wolf_tighter_than_bonferroni_under_correlation():
     rw_min = min(r["rw_p_value"] for r in rows)
     bonf_min = min(r["bonferroni_p_value"] for r in rows)
     assert rw_min <= bonf_min + 1e-9
+
+
+# ---------------------------------------------------------------------------
+# Class-imbalance-aware metrics: balanced accuracy, Brier score
+# ---------------------------------------------------------------------------
+
+def test_balanced_accuracy_perfect_prediction():
+    yt = np.array([1, 1, -1, -1, 1, -1])
+    yp = yt.copy()
+    assert balanced_accuracy(yt, yp) == pytest.approx(1.0)
+
+
+def test_balanced_accuracy_majority_class_predictor():
+    """A constant 'always UP' predictor on imbalanced data must
+    score 0.5 regardless of the imbalance level."""
+    # 80 percent UP, 20 percent DOWN. Constant +1 predictor.
+    yt = np.array([1] * 80 + [-1] * 20)
+    yp = np.ones_like(yt)
+    raw_acc = float(np.mean(yt == yp))
+    assert raw_acc == pytest.approx(0.80)
+    assert balanced_accuracy(yt, yp) == pytest.approx(0.50)
+
+
+def test_balanced_accuracy_random_predictor_imbalanced():
+    """On imbalanced data, a 50/50 random predictor's balanced
+    accuracy is around 0.5 in expectation, while raw accuracy
+    is around the majority-class rate."""
+    rng = np.random.default_rng(0)
+    n = 4000
+    yt = np.where(rng.uniform(size=n) < 0.7, 1, -1)
+    yp = rng.choice([-1, 1], size=n)
+    bacc = balanced_accuracy(yt, yp)
+    assert abs(bacc - 0.50) < 0.03
+
+
+def test_brier_score_perfect_calibration():
+    """Brier of probabilities that match true labels exactly is 0."""
+    yt = np.array([1, -1, 1, -1])
+    p  = np.array([1.0, 0.0, 1.0, 0.0])
+    assert brier_score(yt, p) == pytest.approx(0.0)
+
+
+def test_brier_score_uniform_05_predictor():
+    """Brier of constant 0.5 on balanced labels is 0.25."""
+    yt = np.array([1, -1, 1, -1])
+    p  = np.full(4, 0.5)
+    assert brier_score(yt, p) == pytest.approx(0.25)
+
+
+def test_brier_skill_score_zero_for_base_rate_predictor():
+    """A constant predictor at the empirical base rate has BSS = 0."""
+    yt = np.array([1] * 70 + [-1] * 30)
+    p = np.full(len(yt), 0.7)
+    assert abs(brier_skill_score(yt, p)) < 1e-9
+
+
+def test_brier_skill_score_positive_when_better_than_base_rate():
+    """A predictor better than base-rate has positive BSS."""
+    yt = np.array([1] * 70 + [-1] * 30)
+    # Closer to truth than the base rate
+    p = np.where(yt == 1, 0.9, 0.1)
+    assert brier_skill_score(yt, p) > 0.0

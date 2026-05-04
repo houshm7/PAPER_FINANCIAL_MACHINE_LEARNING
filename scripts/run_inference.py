@@ -34,7 +34,10 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT))
 
 from src.inference import (  # noqa: E402
+    balanced_accuracy,
     block_bootstrap_accuracy,
+    brier_score,
+    brier_skill_score,
     pairwise_diebold_mariano,
     recommended_block_size,
     romano_wolf_dm,
@@ -111,6 +114,15 @@ def main() -> int:
                 expected_block_size=block,
                 n_boot=args.n_boot, alpha=args.alpha, seed=args.seed,
             )
+            # Class-imbalance-aware metrics on the same OOF series.
+            # y_proba in the CSV is the probability of UP (label +1).
+            yproba_col = sub["y_proba"].astype(float).to_numpy() if "y_proba" in sub.columns else None
+            bacc = balanced_accuracy(yt, yp)
+            base_rate = float((yt == 1).mean())
+            brier = (brier_score(yt, yproba_col, positive_label=1)
+                     if yproba_col is not None else float("nan"))
+            bss = (brier_skill_score(yt, yproba_col, positive_label=1)
+                   if yproba_col is not None else float("nan"))
             ci_rows.append({
                 "ticker": ticker, "horizon": h, "model": model_name,
                 "n": n,
@@ -121,10 +133,15 @@ def main() -> int:
                 "block_size": block,
                 "autocorr_lag1": rho,
                 "n_boot": args.n_boot,
+                "balanced_accuracy": bacc,
+                "base_rate_pos": base_rate,
+                "brier": brier,
+                "brier_skill_score": bss,
             })
             print(f"  h={h} {model_name:>14}: acc={ci.point_estimate:.3f} "
                   f"CI=[{ci.lower:.3f}, {ci.upper:.3f}] "
-                  f"block={block} n={n}")
+                  f"bacc={bacc:.3f} brier={brier:.3f} bss={bss:+.3f} "
+                  f"prior={base_rate:.3f} block={block} n={n}")
 
         # Pairwise DM across models within each (ticker, horizon),
         # plus Romano-Wolf step-down adjustment of the same family.
