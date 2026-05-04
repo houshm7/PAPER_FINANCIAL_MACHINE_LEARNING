@@ -1028,9 +1028,7 @@ incorporated. \\
 protocol to the full 25-stock panel will allow a clustered
 inference report and a sector-level decomposition of the
 leakage-safe accuracy, both of which would substantively
-strengthen the empirical claim. Walk-forward validation under
-the same nested-CV harness offers a natural robustness check
-against the static outer-fold split. Adding a second, independent
+strengthen the empirical claim. Adding a second, independent
 asset class (for example index futures or a large-cap sector ETF)
 would test whether the AAPL findings generalise. Finally,
 combining technical-indicator features with textual,
@@ -1361,6 +1359,92 @@ remains is the single-asset scope: the panel-wide $25 \times 5$
 nested-CV sweep at the matched budget is multi-day compute and
 is left for a follow-up.
 
+\subsection{Walk-forward robustness check}
+\label{sec:addendum_walkforward}
+
+The matched-budget result of
+Section~\ref{sec:addendum_caveats} controls for hyperparameter
+budget but holds the outer validation scheme fixed at Purged
+K-Fold. A separate concern is whether the leakage-safe finding
+is sensitive to that choice: Purged K-Fold draws test slices
+from anywhere in the sample (with overlapping labels purged),
+which means the training set for any given outer fold can
+contain observations chronologically \emph{after} the test
+fold. A stricter alternative is walk-forward validation, in
+which each successive outer fold expands the training window
+forward in time and the test slice is strictly the next
+contiguous block. Walk-forward needs no purging because the
+chronological ordering forecloses look-ahead leakage by
+construction.
+
+We re-ran the leakage-safe nested-CV pipeline on AAPL at $h=1$
+under expanding-window walk-forward as the outer scheme (see
+\texttt{src/validation.py}, \texttt{tests/test\_walk\_forward.py}),
+keeping the inner CV as Purged K-Fold and the matched
+hyperparameter budget ($50$ Optuna trials, $5$ inner folds, the
+same four tree backends). The first $40$\,\% of the series is
+reserved as the initial training window and the remainder is
+partitioned into five contiguous test slices, yielding
+$n=737$ pooled OOF predictions ($\approx 60$\,\% of the Purged
+K-Fold OOF count, by construction). Wall time:
+$73$~minutes on the same CPU-only host.
+
+\begin{table}[H]
+\centering
+\caption{Walk-forward robustness check at AAPL $h=1$, matched
+budget. Settings: $5$ outer expanding-window walk-forward folds
+$\times$ $5$ inner Purged folds $\times$ $50$ Optuna trials per
+(outer fold, model), Boruta \texttt{max\_iter}=100, raw-return
+labels, embargo of $h-1=0$ observations between train tail and
+test head (no overlap at $h=1$), seed~42. Bootstrap CIs are
+stationary block-bootstrap (Politis-Romano 1994) at 95\,\%,
+$n_{\text{boot}}=4000$, $m=9$. Source:
+\texttt{results/walk\_forward\_h1/} in the companion
+repository.}
+\label{tab:addendum_walkforward}
+\scriptsize
+\begin{tabular}{lccccc}
+\toprule
+\textbf{Model} & \textbf{Acc.} & \textbf{Bootstrap 95\,\% CI} & \textbf{Bal.\ Acc.} & \textbf{Brier} & \textbf{BSS} \\
+\midrule
+Random Forest & 0.479 & [0.441, 0.518] & 0.489 & 0.259 & $-0.042$ \\
+XGBoost       & 0.518 & [0.482, 0.555] & 0.526 & 0.259 & $-0.040$ \\
+LightGBM      & 0.497 & [0.460, 0.535] & 0.502 & 0.315 & $-0.265$ \\
+CatBoost      & 0.491 & [0.449, 0.533] & 0.499 & 0.283 & $-0.136$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\noindent The headline finding is preserved under walk-forward.
+Every bootstrap CI contains the chance level $0.50$, every
+balanced accuracy lies within $[0.489, 0.526]$, and every Brier
+skill score is negative. The pooled accuracies span
+$[0.479, 0.518]$, slightly more dispersed than the
+$[0.500, 0.503]$ range under matched-budget Purged K-Fold; the
+extra dispersion is consistent with the smaller OOF window
+($n=737$ versus $n=1{,}229$) and with the fact that
+walk-forward test slices are five consecutive forward windows
+rather than five interleaved slices, so each test set lands in
+a structurally different market regime. The only pairwise
+Diebold-Mariano comparison that survives Romano-Wolf adjustment
+in this run is XGBoost versus Random Forest at
+$\hat{p}^{*} = 0.044$ ($\alpha = 0.05$); the other five pairs
+are tied. We do not draw model-selection conclusions from a
+single borderline pair on a single asset, especially given that
+the Purged K-Fold matched-budget run on the same data
+(Table~\ref{tab:addendum_matched_budget}) has all six pairwise
+$\hat{p}^{*}$ above $0.99$.
+
+\noindent The robustness reading is therefore that the
+22-percentage-point leakage gap reported in
+Sections~\ref{sec:addendum} through~\ref{sec:addendum_caveats}
+is not an artefact of the Purged K-Fold partition geometry.
+Under walk-forward, a fundamentally different validation scheme
+that enforces strict chronological precedence rather than
+purging, the leakage-safe accuracy on AAPL $h=1$ remains
+indistinguishable from chance at every backend. Audit item C-9
+(walk-forward robustness) is closed by this commit.
+
 \subsection{Block-bootstrap inference and pairwise Diebold-Mariano}
 \label{sec:addendum_inference}
 
@@ -1577,10 +1661,13 @@ under \texttt{data/snapshots/} (see
 \texttt{17\_panel\_snapshot.md}); the pipeline reads them before
 any \texttt{yfinance} call, so the gating constraint on the
 panel-wide replication is now compute time alone. The
-matched-budget robustness check at $h=1$ has been performed
-(Section~\ref{sec:addendum_caveats}) and confirms the headline
-gap; the remaining open items are walk-forward robustness and
-the panel-wide sweep, both compute-bound.
+matched-budget robustness check at $h=1$
+(Section~\ref{sec:addendum_caveats}) and the walk-forward
+robustness check at $h=1$
+(Section~\ref{sec:addendum_walkforward}) have both been
+performed and confirm the headline gap. The single remaining
+empirical caveat is the panel-wide $25 \times 5$ nested-CV
+sweep, gated on multi-day compute.
 
 \section*{Use of generative AI}
 
